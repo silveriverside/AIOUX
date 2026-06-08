@@ -29,20 +29,31 @@ router.post('/api/interact', async (req, res) => {
   const requestStart = performance.now();
   const timing = {};
   const { interaction } = req.body || {};
+  const traceId = interaction?.traceId || `srv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const finishTiming = () => {
     timing.totalMs = Math.round(performance.now() - requestStart);
     return timing;
   };
   const logTiming = (decision, applied, extra = '') => {
-    console.log(
-      `[timing] interact type=${interaction?.type || 'unknown'} action=${decision?.action || 'n/a'} node=${decision?.nodeId || 'n/a'} applied=${applied} total=${timing.totalMs ?? 'n/a'}ms model=${timing.modelMs ?? 0}ms parse=${timing.parseMs ?? 0}ms apply=${timing.applyMs ?? 0}ms ${extra}`.trim()
-    );
+    console.log('[timing]', JSON.stringify({
+      event: 'interact',
+      traceId,
+      type: interaction?.type || 'unknown',
+      intentHint: interaction?.intentHint || '',
+      sceneType: interaction?.currentCapabilities?.sceneType || 'generic',
+      action: decision?.action || 'n/a',
+      mode: decision?.mode || 'n/a',
+      nodeId: decision?.nodeId || 'n/a',
+      applied,
+      timing,
+      extra,
+    }));
   };
 
   if (!interaction) {
     finishTiming();
-    console.warn(`[timing] interact bad_request total=${timing.totalMs}ms`);
-    return res.status(400).json({ error: '缺少 interaction 字段', timing });
+    console.warn('[timing]', JSON.stringify({ event: 'interact_bad_request', traceId, timing }));
+    return res.status(400).json({ error: '缺少 interaction 字段', traceId, timing });
   }
 
   const currentId = graph.getCurrent();
@@ -66,8 +77,8 @@ router.post('/api/interact', async (req, res) => {
     // 模型/网络错误：明确上报，不静默降级
     finishTiming();
     console.error('[interact] 模型调用失败:', err.message);
-    console.log(`[timing] interact model_error total=${timing.totalMs}ms model=${timing.modelMs ?? 0}ms`);
-    return res.status(502).json({ error: err.message, timing });
+    console.log('[timing]', JSON.stringify({ event: 'interact_model_error', traceId, timing }));
+    return res.status(502).json({ error: err.message, traceId, timing });
   }
 
   const parseStart = performance.now();
@@ -79,12 +90,12 @@ router.post('/api/interact', async (req, res) => {
   if (!decision.shouldUpdate) {
     finishTiming();
     logTiming(decision, false, 'skip=no_update');
-    return res.json({ decision, error: error || null, applied: false, timing });
+    return res.json({ traceId, decision, error: error || null, applied: false, timing });
   }
 
   try {
     const applyStart = performance.now();
-    const result = await applyDecision(decision, currentNode);
+    const result = await applyDecision(decision, currentNode, timing);
     timing.applyMs = Math.round(performance.now() - applyStart);
     finishTiming();
     logTiming(decision, true, result.snapshot?.mode === 'async' ? 'snapshot=async' : '');
@@ -92,6 +103,7 @@ router.post('/api/interact', async (req, res) => {
       decision,
       error: error || null,
       applied: true,
+      traceId,
       timing,
       ...result,
       graph: graph.getGraph(),
@@ -100,30 +112,35 @@ router.post('/api/interact', async (req, res) => {
   } catch (err) {
     finishTiming();
     console.error('[interact] 应用决策失败:', err.message);
-    console.log(`[timing] interact apply_error total=${timing.totalMs}ms`);
-    res.status(500).json({ error: `应用决策失败: ${err.message}`, decision, timing });
+    console.log('[timing]', JSON.stringify({ event: 'interact_apply_error', traceId, timing }));
+    res.status(500).json({ error: `应用决策失败: ${err.message}`, traceId, decision, timing });
   }
 });
 
 // 根据 action 操作图谱与快照
-function applyDecision(decision, currentNode) {
+function applyDecision(decision, currentNode, timing = {}) {
   if (decision.action === 'navigate') {
+    const navStart = performance.now();
     if (!graph.hasNode(decision.nodeId)) {
       // 目标不存在：降级为提示，不跳转（记录为可改进项）
       console.warn('[navigate] 目标节点不存在:', decision.nodeId);
+      timing.graphMs = Math.round(performance.now() - navStart);
       return { html: snap.getNodeHtml(currentNode.nodeId), nodeId: currentNode.nodeId, navWarning: '目标节点不存在' };
     }
     graph.setCurrent(decision.nodeId);
+    timing.graphMs = Math.round(performance.now() - navStart);
     return { html: snap.getNodeHtml(decision.nodeId), nodeId: decision.nodeId };
   }
 
   if (decision.action === 'create') {
+    const graphStart = performance.now();
     graph.addNode({
       nodeId: decision.nodeId,
       title: decision.title,
       parentId: decision.parentId || currentNode.nodeId,
       intent: decision.intent,
     });
+    timing.graphMs = Math.round(performance.now() - graphStart);
   }
 
   // create 或 stay 都需要落地 HTML 内容
@@ -137,7 +154,9 @@ function applyDecision(decision, currentNode) {
     html = decision.html || snap.getNodeHtml(decision.nodeId);
   }
 
+  const currentStart = performance.now();
   graph.setCurrent(decision.nodeId);
+  timing.graphMs = (timing.graphMs || 0) + Math.round(performance.now() - currentStart);
   if (isPatchStay) {
     return {
       html,
@@ -148,7 +167,9 @@ function applyDecision(decision, currentNode) {
   }
 
   const message = `[${decision.action}] ${decision.title}: ${decision.intent}`;
+  const snapshotStart = performance.now();
   const snapshotJob = snap.commitNodeAsync(decision.nodeId, html, message);
+  timing.snapshotEnqueueMs = Math.round(performance.now() - snapshotStart);
   snapshotJob.promise.catch(() => {
     // 后台队列内部已记录错误；这里避免未处理 Promise 影响进程。
   });
@@ -168,22 +189,41 @@ router.get('/api/snapshot-jobs/:jobId', (req, res) => {
 
 // 前端在增量渲染后回传最终 HTML，持久化为该节点版本
 router.post('/api/sync', (req, res) => {
+  const requestStart = performance.now();
+  const timing = {};
   const { nodeId, html } = req.body || {};
+  const traceId = req.body?.traceId || `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const finishTiming = () => {
+    timing.totalMs = Math.round(performance.now() - requestStart);
+    return timing;
+  };
   if (!nodeId || typeof html !== 'string') {
-    return res.status(400).json({ error: '缺少 nodeId 或 html' });
+    finishTiming();
+    return res.status(400).json({ error: '缺少 nodeId 或 html', traceId, timing });
   }
-  if (!graph.hasNode(nodeId)) return res.status(404).json({ error: '节点不存在' });
+  if (!graph.hasNode(nodeId)) {
+    finishTiming();
+    return res.status(404).json({ error: '节点不存在', traceId, timing });
+  }
   try {
+    const snapshotStart = performance.now();
     const snapshotJob = snap.commitNodeAsync(nodeId, html, `[sync] ${nodeId}`);
+    timing.snapshotEnqueueMs = Math.round(performance.now() - snapshotStart);
     snapshotJob.promise.catch(() => {
       // 后台队列内部已记录错误；这里避免未处理 Promise 影响进程。
     });
+    finishTiming();
+    console.log('[timing]', JSON.stringify({ event: 'sync', traceId, nodeId, timing }));
     res.json({
       ok: true,
+      traceId,
+      timing,
       snapshot: { mode: 'async', status: 'pending', jobId: snapshotJob.jobId },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    finishTiming();
+    console.log('[timing]', JSON.stringify({ event: 'sync_error', traceId, nodeId, timing }));
+    res.status(500).json({ error: err.message, traceId, timing });
   }
 });
 

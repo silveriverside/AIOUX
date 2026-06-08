@@ -220,20 +220,34 @@ export function applyPatches(patches) {
 }
 
 export function applyPatchesSafely(patches) {
+  const startedAt = performance.now();
+  const timing = {};
   const beforeHtml = getCurrentHtml();
   try {
     const doc = iframe().contentDocument;
+    const validateStart = performance.now();
     validatePatchShape(doc, patches);
+    timing.patchValidateMs = Math.round(performance.now() - validateStart);
+    const riskStart = performance.now();
     const assessment = analyzePatchRisk(doc, patches, beforeHtml);
+    timing.patchRiskMs = Math.round(performance.now() - riskStart);
     if (assessment.risk === 'high') {
       throw new Error(`patch 风险过高: ${assessment.reasons.join('；')}`);
     }
+    const applyStart = performance.now();
     applyPatchOperations(doc, patches);
+    timing.patchApplyMs = Math.round(performance.now() - applyStart);
+    const documentValidateStart = performance.now();
     const html = validatePatchedDocument(doc, beforeHtml);
-    return { ok: true, html, assessment };
+    timing.patchDocumentValidateMs = Math.round(performance.now() - documentValidateStart);
+    timing.patchTotalMs = Math.round(performance.now() - startedAt);
+    return { ok: true, html, assessment, timing };
   } catch (err) {
+    const rollbackStart = performance.now();
     renderFull(beforeHtml);
-    return { ok: false, error: err.message, html: beforeHtml };
+    timing.patchRollbackMs = Math.round(performance.now() - rollbackStart);
+    timing.patchTotalMs = Math.round(performance.now() - startedAt);
+    return { ok: false, error: err.message, html: beforeHtml, timing };
   }
 }
 
