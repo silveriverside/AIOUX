@@ -52,7 +52,6 @@ async function commitNodeSnapshot(nodeId, message) {
 }
 
 export function commitNodeAsync(nodeId, html, message) {
-  writeNodeHtml(nodeId, html);
   const jobId = `snap_${Date.now()}_${nextJobSeq++}`;
   const startedAt = Date.now();
   snapshotJobs.set(jobId, {
@@ -68,6 +67,7 @@ export function commitNodeAsync(nodeId, html, message) {
 
   const promise = commitQueue.then(async () => {
     try {
+      writeNodeHtml(nodeId, html);
       const commit = await commitNodeSnapshot(nodeId, message);
       const finishedAt = Date.now();
       const job = snapshotJobs.get(jobId);

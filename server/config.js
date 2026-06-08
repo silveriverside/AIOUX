@@ -12,7 +12,10 @@ const __dirname = path.dirname(__filename);
 export const ROOT_DIR = path.resolve(__dirname, '..');
 
 // 快照仓库目录（独立 git，存放 pages/<nodeId>.html 与 graph.json）
-export const SNAPSHOTS_DIR = path.join(ROOT_DIR, 'snapshots');
+// 测试可通过 AIOUX_SNAPSHOTS_DIR 指向临时目录，避免污染真实快照仓库。
+export const SNAPSHOTS_DIR = process.env.AIOUX_SNAPSHOTS_DIR
+  ? path.resolve(process.env.AIOUX_SNAPSHOTS_DIR)
+  : path.join(ROOT_DIR, 'snapshots');
 export const PAGES_DIR = path.join(SNAPSHOTS_DIR, 'pages');
 export const GRAPH_FILE = path.join(SNAPSHOTS_DIR, 'graph.json');
 
