@@ -87,22 +87,28 @@ async function testLocalNative3d(page) {
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => {
-    window.dispatchEvent(new MessageEvent('message', {
-      data: {
+    window.postMessage(
+      {
         __aioux: true,
         kind: 'frame-capabilities',
         capabilities: { sceneType: 'interactive_3d', nativeInteractions: ['tap_background', 'swipe', 'drag_rotate'] },
       },
-    }));
+      '*'
+    );
   });
-  await page.waitForTimeout(100);
+  await page.waitForFunction(async () => {
+    const stage = await import('/js/stage.js');
+    return stage.getCapabilities().sceneType === 'interactive_3d';
+  });
   await page.evaluate(() => {
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { __aioux: true, kind: 'frame-pointer', phase: 'down', x: 100, y: 100, w: 1000, h: 1000, label: null },
-    }));
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
-    }));
+    window.postMessage(
+      { __aioux: true, kind: 'frame-pointer', phase: 'down', x: 100, y: 100, w: 1000, h: 1000, label: null },
+      '*'
+    );
+    window.postMessage(
+      { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
+      '*'
+    );
   });
   await page.waitForTimeout(500);
   const statusText = await page.textContent('#status-text');
