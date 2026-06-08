@@ -16,6 +16,18 @@ const els = {
 let currentNodeId = 'main';
 let busy = false;
 
+function makeTraceId(prefix = 'client') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function elapsedSince(start) {
+  return Math.round(performance.now() - start);
+}
+
+function logTiming(event, detail) {
+  console.info('[timing]', JSON.stringify({ event, ...detail }));
+}
+
 function setStatus(text, action) {
   els.statusText.textContent = text;
   if (action) {
@@ -28,11 +40,19 @@ function hideWelcome() { els.welcome.classList.add('hidden'); }
 
 // 处理一次交互事件
 async function handleInteraction(ev) {
+  const traceId = ev.traceId || makeTraceId('interaction');
   const clientStart = performance.now();
   const routed = routeInteraction(ev);
+  const routeMs = elapsedSince(clientStart);
   if (routed.kind === 'local_native') {
-    const clientMs = Math.round(performance.now() - clientStart);
-    console.info(`[timing] local interaction type=${ev.type} scene=${stage.getCapabilities().sceneType} total=${clientMs}ms`);
+    const clientMs = elapsedSince(clientStart);
+    logTiming('local_interaction', {
+      traceId,
+      type: ev.type,
+      intentHint: routed.intentHint,
+      sceneType: stage.getCapabilities().sceneType,
+      timing: { routeMs, totalMs: clientMs },
+    });
     setStatus(`${routed.message} · 本地耗时 ${clientMs}ms`, '提示');
     return;
   }
@@ -40,46 +60,79 @@ async function handleInteraction(ev) {
   // 附带当前页 HTML 供后端上下文（后端也存有，这里前端不强依赖）
   const payload = {
     ...ev,
+    traceId,
     intentHint: routed.intentHint,
     currentCapabilities: stage.getCapabilities(),
   };
   busy = true; setLoading(true);
   setStatus(`处理交互: ${ev.type}…`, '处理中');
   try {
+    const apiStart = performance.now();
     const res = await api.interact(payload);
-    const clientMs = Math.round(performance.now() - clientStart);
-    console.info('[timing] remote interaction', { type: ev.type, clientMs, server: res.timing || null });
-    applyResult(res, clientMs);
+    const apiRoundTripMs = elapsedSince(apiStart);
+    const clientMs = elapsedSince(clientStart);
+    const clientTiming = { routeMs, apiRoundTripMs, totalMs: clientMs };
+    logTiming('remote_interaction', {
+      traceId,
+      type: ev.type,
+      intentHint: routed.intentHint,
+      sceneType: payload.currentCapabilities.sceneType,
+      clientTiming,
+      serverTiming: res.timing || null,
+    });
+    applyResult(res, clientTiming, traceId);
   } catch (err) {
-    const clientMs = Math.round(performance.now() - clientStart);
-    console.info(`[timing] remote interaction failed type=${ev.type} client=${clientMs}ms`);
+    const clientMs = elapsedSince(clientStart);
+    logTiming('remote_interaction_failed', {
+      traceId,
+      type: ev.type,
+      intentHint: routed.intentHint,
+      timing: { routeMs, totalMs: clientMs },
+      error: err.message,
+    });
     setStatus(`交互失败: ${err.message}`, 'error');
   } finally {
     busy = false; setLoading(false);
   }
 }
 
-function applyResult(res, clientMs = null) {
+function applyResult(res, clientTiming = null, fallbackTraceId = '') {
   const d = res.decision || {};
-  const timingText = formatTiming(res.timing, clientMs);
+  const traceId = res.traceId || fallbackTraceId || makeTraceId('result');
+  const timingText = formatTiming(res.timing, clientTiming?.totalMs);
   const snapshotText = res.snapshot?.mode === 'async' ? ' · 快照后台保存中' : '';
+  const badge = d.action === 'create' ? 'create' : d.action === 'navigate' ? 'navigate' : '更新';
   if (!res.applied) {
+    logTiming('apply_result_skip', { traceId, action: d.action, mode: d.mode, clientTiming, serverTiming: res.timing || null });
     setStatus(`未更新 · ${d.reasoning || d.intent || '模型判断无需改变界面'}${timingText}`, '无更新');
     return;
   }
   hideWelcome();
 
   if (d.action === 'navigate') {
+    const renderStart = performance.now();
     stage.renderFull(res.html || '');
+    logTiming('render_full', { traceId, action: d.action, mode: d.mode, timing: { renderMs: elapsedSince(renderStart) } });
   } else if (d.mode === 'patch' && d.action === 'stay') {
+    const patchStart = performance.now();
     const patchResult = stage.applyPatchesSafely(d.patches);
+    logTiming('patch_apply', {
+      traceId,
+      action: d.action,
+      mode: d.mode,
+      timing: { patchClientMs: elapsedSince(patchStart), ...(patchResult.timing || {}) },
+      assessment: patchResult.assessment || null,
+      ok: patchResult.ok,
+      error: patchResult.error || null,
+    });
     if (!patchResult.ok) {
       setStatus(`patch 应用失败，已回滚: ${patchResult.error}${timingText}`, 'error');
       return;
     }
     // 增量渲染后，把最终 HTML 同步回后端持久化为版本
-    api.sync(res.nodeId, patchResult.html)
+    syncFinalHtml(res.nodeId, patchResult.html, traceId)
       .then((syncRes) => {
+        logTiming('sync_complete', { traceId: syncRes.traceId || traceId, nodeId: res.nodeId, timing: syncRes.clientTiming, serverTiming: syncRes.timing || null });
         if (syncRes.snapshot?.jobId) {
           setStatus(`${labelOf(d.action)} · ${d.intent || ''}（${d.reasoning || ''}）${timingText} · 快照后台保存中`, badge);
           watchSnapshotJob(syncRes.snapshot.jobId, badge, timingText);
@@ -90,11 +143,12 @@ function applyResult(res, clientMs = null) {
         setStatus(`patch 同步失败: ${e.message}${timingText}`, 'error');
       });
   } else {
+    const renderStart = performance.now();
     stage.renderFull(res.html || '');
+    logTiming('render_full', { traceId, action: d.action, mode: d.mode, timing: { renderMs: elapsedSince(renderStart) } });
   }
 
   currentNodeId = res.nodeId || d.nodeId || currentNodeId;
-  const badge = d.action === 'create' ? 'create' : d.action === 'navigate' ? 'navigate' : '更新';
   setStatus(`${labelOf(d.action)} · ${d.intent || ''}（${d.reasoning || ''}）${timingText}${snapshotText}`, badge);
   if (res.snapshot?.jobId) {
     watchSnapshotJob(res.snapshot.jobId, badge, timingText);
@@ -103,6 +157,19 @@ function applyResult(res, clientMs = null) {
   if (res.graph) renderTree(res.graph);
   if (res.breadcrumb) renderBreadcrumb(res.breadcrumb);
   renderVersions(currentNodeId);
+}
+
+async function syncFinalHtml(nodeId, html, traceId) {
+  const syncStart = performance.now();
+  const resp = await fetch('/api/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nodeId, html, traceId }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  const clientTiming = { syncRoundTripMs: elapsedSince(syncStart) };
+  if (!resp.ok) throw new Error(data.error || `请求失败 ${resp.status}`);
+  return { ...data, clientTiming };
 }
 
 function labelOf(action) {
