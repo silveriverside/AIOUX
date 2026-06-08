@@ -247,3 +247,39 @@ export function seedFromExperiencePresets() {
 
 // 模块加载即以现有范式为种子，保证开箱可用且向后兼容。
 seedFromExperiencePresets();
+
+// === 变体目录自动加载 ===
+// 约定：server/presets/variants/ 下的每个 .js 文件在被 import 时自注册一个或多个变体。
+// 这样新增场景变体只需新增一个独立文件，便于多分支并行开发、互不冲突。
+let variantsLoaded = false;
+
+export async function loadPresetVariants({ force = false } = {}) {
+  if (variantsLoaded && !force) return { loaded: 0, skipped: true };
+  const { default: fs } = await import('node:fs');
+  const { default: path } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const variantsDir = path.join(here, 'presets', 'variants');
+  if (!fs.existsSync(variantsDir)) {
+    variantsLoaded = true;
+    return { loaded: 0, skipped: false, reason: 'no_variants_dir' };
+  }
+  const files = fs
+    .readdirSync(variantsDir)
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .sort();
+  let loaded = 0;
+  for (const file of files) {
+    const url = new URL(`./presets/variants/${file}`, import.meta.url).href;
+    // 变体文件在被 import 时自行调用 registerPresetVariant。
+    // 单个文件出错不应阻断其它变体加载；记录错误但继续。
+    try {
+      await import(url);
+      loaded += 1;
+    } catch (err) {
+      console.error(`[presetRegistry] 变体文件加载失败 ${file}:`, err.message);
+    }
+  }
+  variantsLoaded = true;
+  return { loaded, skipped: false };
+}

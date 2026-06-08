@@ -740,3 +740,7 @@ npm run e2e
 - 已确认外链策略升级：允许引用白名单外链素材（图片、icon、视频、3D 模型、CDN 库），不再要求页面完全自包含；素材搜集与维护（联网与本地）作为独立核心模块。
 - 已确认前端生成采用通用「skill → preset 适配层」，支持同场景多预设变体和未来 skill 的可扩展接入，而非特异性硬融合个别 skill。
 - 已创建文档分支 `docs/core-modules-architecture` 落档以上架构愿景；本分支不修改业务代码。
+- 已合入 PR #9 `feature/preset-registry`：新增通用「skill → preset 适配层」注册表（`server/presetRegistry.js`），支持同场景多变体、显式/关键词/兜底三级选择，并以现有 4 套范式为种子；新增 `ALLOWED_ASSET_DOMAINS` 外链白名单与 `isAllowedAssetUrl()`；零行为变更。
+- 已创建 `feature/preset-integration` 分支把注册表接入生成主流程：新增 `loadPresetVariants()` 自动加载 `server/presets/variants/` 下各自注册的变体文件；`server/index.js` 启动时加载；`server/intent.js` 在 `buildMessages` 中按交互选中变体并注入其 `promptSection`（失败回退通用范式摘要）。新增示例变体 `interactive_3d__threejs_webgl`。
+- 设计动机：变体以独立文件存在并自注册，新增场景变体只需新增一个文件，便于多分支/多 subagent 并行开发，互不冲突。
+- 验证记录：`node --test server/*.test.js` 通过 10/10；`GetDiagnostics` 无错误；使用临时 `AIOUX_SNAPSHOTS_DIR` 和 `PORT=3102` 启动服务确认变体加载与服务启动正常，隔离 E2E 通过，临时服务和目录已清理。
