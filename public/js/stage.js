@@ -129,6 +129,8 @@ function analyzePatchRisk(doc, patches, beforeHtml) {
   let touched = 0;
   let destructiveTouched = 0;
   let injectedHtmlLength = 0;
+  let hasClearBodySelector = false;
+  let hasLargeReplacement = false;
 
   for (const p of patches || []) {
     const targets = doc.querySelectorAll(p.selector);
@@ -142,18 +144,22 @@ function analyzePatchRisk(doc, patches, beforeHtml) {
       reasons.push(`禁止直接修改根节点: ${p.selector}`);
     }
     if (/(^|[,\s>+~])body\s*>\s*\*/i.test(p.selector) && (p.action === 'remove' || p.action === 'replace')) {
+      hasClearBodySelector = true;
       reasons.push(`疑似清空页面主体: ${p.selector}`);
     }
     if (typeof p.html === 'string' && /<script|on\w+\s*=|javascript:/i.test(p.html)) {
       reasons.push('patch HTML 含脚本或事件属性');
     }
+    if (p.action === 'replace' && beforeHtml.length > 0 && (p.html || '').length > Math.max(3000, beforeHtml.length * 1.5)) {
+      hasLargeReplacement = true;
+    }
   }
 
   const destructiveRatio = destructiveTouched / bodyChildren;
-  if (destructiveRatio > 0.6) {
+  if (destructiveRatio > 0.6 && (hasClearBodySelector || destructiveTouched > 3)) {
     reasons.push(`破坏性改动范围过大: ${destructiveTouched}/${bodyChildren}`);
   }
-  if (beforeHtml.length > 0 && injectedHtmlLength > beforeHtml.length * 1.5) {
+  if (hasLargeReplacement || (beforeHtml.length > 0 && injectedHtmlLength > Math.max(8000, beforeHtml.length * 3))) {
     reasons.push('patch 注入内容相对当前页面过大');
   }
 
