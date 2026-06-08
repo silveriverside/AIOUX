@@ -744,3 +744,12 @@ npm run e2e
 - 已创建 `feature/preset-integration` 分支把注册表接入生成主流程：新增 `loadPresetVariants()` 自动加载 `server/presets/variants/` 下各自注册的变体文件；`server/index.js` 启动时加载；`server/intent.js` 在 `buildMessages` 中按交互选中变体并注入其 `promptSection`（失败回退通用范式摘要）。新增示例变体 `interactive_3d__threejs_webgl`。
 - 设计动机：变体以独立文件存在并自注册，新增场景变体只需新增一个文件，便于多分支/多 subagent 并行开发，互不冲突。
 - 验证记录：`node --test server/*.test.js` 通过 10/10；`GetDiagnostics` 无错误；使用临时 `AIOUX_SNAPSHOTS_DIR` 和 `PORT=3102` 启动服务确认变体加载与服务启动正常，隔离 E2E 通过，临时服务和目录已清理。
+- 已并行合入 PR #11/#12/#13：3D 多变体（`css3d_lite`、`gsap_motion`）、2D 多变体（`svg_dataviz`、`map_explore`、`timeline_story`）、意图路由抽为纯函数 `public/js/route-interaction.js` + 可回放评测集（23 条样本，按边界类别统计误判）。当前 3D 场景 4 个变体、2D 场景 4 个变体。
+- 并行方式：用 3 个 subagent 并行做研究产出，再逐个落到独立分支验证合入；变体以独立文件自注册，分支间零文件重叠、无冲突。
+
+### 2026-06-08 预设体系验收
+
+- 主线全量测试 41/41 通过（`server/*.test.js` + `public/js/route-interaction.test.js`），`GetDiagnostics` 无错误。
+- 真实模型生成验收（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3104`）：输入“做一个可旋转的真实感地球 webgl 3D 展示”，模型 `create` 了 `earth_3d_webgl`，整页 6083 字符，`modelMs≈17811ms`、`applyMs=2ms`，含 `data-explorable` 热点与外链图片，变体注入链路打通、服务启动加载 3 个变体文件。
+- **发现待修复 P1（选择质量 bug，非正常表现）**：上述 query 的变体选择器选中了 `interactive_3d__builtin`（命中宽泛词“地球/旋转/3d”得 3 分）而非专用的 `interactive_3d__threejs_webgl`（命中“webgl/真实感”得 2 分）。内置种子变体关键词过宽，会压制更专用的 skill 变体；且当前选择器只按关键词命中数排序、未考虑变体专精度与 priority 加权，生成结果也未严格遵循被注入变体（本次产出退化为 CSS3D 而非 WebGL）。
+  - 后续修复方向（分支 `fix/preset-selection-specificity`）：① 内置种子变体降权或收窄关键词；② 选择器在关键词同分/接近时用 `priority` 与“专用 skill 标识”加权，让专用变体优先；③ 可在评测集中加入“webgl 真实感→threejs 变体”“轻量→css3d 变体”等期望用例，量化选择准确率。
