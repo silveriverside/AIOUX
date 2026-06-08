@@ -22,74 +22,89 @@ async function checkServer() {
 }
 
 async function testSnapshotStatus(page) {
-  const interactUrls = [];
   const syncUrls = [];
-  const jobUrls = [];
   page.on('request', (request) => {
     const url = request.url();
-    if (url.includes('/api/interact')) interactUrls.push(url);
     if (url.includes('/api/sync')) syncUrls.push(url);
-    if (url.includes('/api/snapshot-jobs/')) jobUrls.push(url);
   });
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-  await page.fill(
-    '#prompt-input',
-    `在当前页面右上角加一个 E2E 快照状态验证标记 ${Date.now()}，保持当前页面，不要创建新页面。`
-  );
-  await page.click('#prompt-send');
 
-  await page.waitForFunction(
-    () => document.querySelector('#status-text')?.textContent.includes('快照后台保存中'),
-    null,
-    { timeout: MODEL_TIMEOUT_MS }
-  );
-  const savingText = await page.textContent('#status-text');
+  const syncStart = await page.evaluate(async () => {
+    const stage = await import('/js/stage.js');
+    const graphResp = await fetch('/api/graph');
+    const graphBody = await graphResp.json();
+    const nodeId = graphBody.graph?.current || 'main';
+    stage.renderFull('<main id="e2e-root"><h1>E2E Patch Sync</h1><p>stable baseline</p></main>');
+    const patch = [{
+      selector: '#e2e-root',
+      action: 'append',
+      html: `<div class="e2e-marker">snapshot ${Date.now()}</div>`,
+    }];
+    const applied = stage.applyPatchesSafely(patch);
+    if (!applied.ok) return { ok: false, error: applied.error };
+    const response = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, html: applied.html }),
+    });
+    const body = await response.json();
+    return { ok: response.ok, status: response.status, nodeId, body };
+  });
 
-  await page.waitForFunction(
-    () => document.querySelector('#status-text')?.textContent.includes('快照已保存'),
-    null,
-    { timeout: MODEL_TIMEOUT_MS }
-  );
-  const savedText = await page.textContent('#status-text');
+  assert(syncStart.ok, `确定性 patch sync 启动失败: ${JSON.stringify(syncStart)}`);
+  const jobId = syncStart.body?.snapshot?.jobId;
+  assert(jobId, `sync 响应缺少 snapshot.jobId: ${JSON.stringify(syncStart.body)}`);
 
-  assert(interactUrls.length === 1, `期望 1 次 /api/interact，实际 ${interactUrls.length}`);
-  assert(syncUrls.length >= 1, '期望 patch 路径至少 1 次 /api/sync');
-  assert(jobUrls.length >= 1, '期望至少 1 次 /api/snapshot-jobs 轮询');
-  assert(/快照已保存 · \d+ms · [0-9a-f]{8}/.test(savedText || ''), `保存状态缺少耗时或 hash: ${savedText}`);
+  let savedJob = null;
+  let jobPolls = 0;
+  for (let i = 0; i < 45; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    jobPolls += 1;
+    const job = await getJson(`/api/snapshot-jobs/${encodeURIComponent(jobId)}`);
+    if (job.status === 'done' || job.status === 'failed') {
+      savedJob = job;
+      break;
+    }
+  }
+
+  assert(savedJob?.status === 'done', `快照任务未成功完成: ${JSON.stringify(savedJob)}`);
+  assert(syncUrls.length >= 1, '期望确定性 patch 路径至少 1 次 /api/sync');
+  assert(jobPolls >= 1, '期望至少 1 次 /api/snapshot-jobs 轮询');
+  assert(savedJob.commit, `快照任务缺少 commit: ${JSON.stringify(savedJob)}`);
 
   console.log('[e2e] snapshot status ok');
   console.log(`[e2e] sync requests: ${syncUrls.length}`);
-  console.log(`[e2e] saving: ${savingText}`);
-  console.log(`[e2e] saved: ${savedText}`);
+  console.log(`[e2e] snapshot job polls: ${jobPolls}`);
+  console.log(`[e2e] saved: ${savedJob.elapsedMs}ms ${savedJob.commit.slice(0, 8)}`);
 }
 
 async function testLocalNative3d(page) {
-  const graph = await getJson('/api/graph');
-  const nodes = graph.graph?.nodes || {};
-  if (!nodes[LOCAL_3D_NODE]) {
-    console.warn(`[e2e] skip local 3D test: missing node ${LOCAL_3D_NODE}`);
-    return;
-  }
-
-  await getJson('/api/navigate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nodeId: LOCAL_3D_NODE }),
-  });
-
   let interactCount = 0;
   page.on('request', (request) => {
     if (request.url().includes('/api/interact')) interactCount += 1;
   });
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
-  const box = await page.locator('#stage').boundingBox();
-  assert(box, 'stage iframe 不存在');
-
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        __aioux: true,
+        kind: 'frame-capabilities',
+        capabilities: { sceneType: 'interactive_3d', nativeInteractions: ['tap_background', 'swipe', 'drag_rotate'] },
+      },
+    }));
+  });
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { __aioux: true, kind: 'frame-pointer', phase: 'down', x: 100, y: 100, w: 1000, h: 1000, label: null },
+    }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
+    }));
+  });
+  await page.waitForTimeout(500);
   const statusText = await page.textContent('#status-text');
 
   assert(interactCount === 0, `3D 本地点击不应触发 /api/interact，实际 ${interactCount}`);
@@ -134,9 +149,9 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   try {
+    await testLocalNative3d(page);
     await testSnapshotStatus(page);
     await testBadPatchGuard(page);
-    await testLocalNative3d(page);
   } finally {
     await browser.close();
   }

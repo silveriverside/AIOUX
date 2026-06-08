@@ -607,8 +607,9 @@ npm run e2e
 
 - 运行前需要先启动本地服务，默认访问 `http://localhost:3000`。
 - 可用 `AIOUX_BASE_URL` 覆盖服务地址。
-- 可用 `AIOUX_E2E_3D_NODE` 覆盖用于本地 3D 交互验证的节点，默认 `earth_3d_showcase`。
 - 覆盖范围：patch sync 异步保存闭环、坏 patch 回滚保护、`/api/snapshot-jobs/:jobId` 轮询、3D 背景点击不触发模型生成。
+- E2E 中的 patch sync 使用确定性 fixture，不依赖模型每次都返回相同 patch，避免网络或模型输出波动造成误判。
+- E2E 中的 3D 本地交互通过模拟 iframe capabilities 和 pointer 消息验证父窗口路由逻辑，不依赖可变的历史页面快照。
 
 ## 9. 验收用例建议
 
