@@ -121,6 +121,7 @@ async function testBadPatchGuard(page) {
   });
 
   assert(!result.ok, '坏 patch 应被拒绝');
+  assert(result.error.includes('patch 风险过高'), `坏 patch 应在预检阶段被风险评分拦截: ${result.error}`);
   assert(result.restored, `坏 patch 后页面未回滚: ${JSON.stringify(result)}`);
   assert(syncCount === 0, `坏 patch 不应触发 /api/sync，实际 ${syncCount}`);
 

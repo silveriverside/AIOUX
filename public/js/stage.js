@@ -121,23 +121,73 @@ export function renderFull(html) {
   doc.close();
 }
 
-function applyPatchOperations(doc, patches) {
+const ALLOWED_PATCH_ACTIONS = new Set(['append', 'replace', 'remove']);
+
+function analyzePatchRisk(doc, patches, beforeHtml) {
+  const reasons = [];
+  const bodyChildren = Math.max(doc.body?.children.length || 0, 1);
+  let touched = 0;
+  let destructiveTouched = 0;
+  let injectedHtmlLength = 0;
+
+  for (const p of patches || []) {
+    const targets = doc.querySelectorAll(p.selector);
+    const targetCount = targets.length;
+    touched += targetCount;
+    if (p.action === 'remove' || p.action === 'replace') destructiveTouched += targetCount;
+    if (typeof p.html === 'string') injectedHtmlLength += p.html.length;
+
+    const selector = p.selector.toLowerCase();
+    if (selector === 'html' || selector === 'body') {
+      reasons.push(`禁止直接修改根节点: ${p.selector}`);
+    }
+    if (/(^|[,\s>+~])body\s*>\s*\*/i.test(p.selector) && (p.action === 'remove' || p.action === 'replace')) {
+      reasons.push(`疑似清空页面主体: ${p.selector}`);
+    }
+    if (typeof p.html === 'string' && /<script|on\w+\s*=|javascript:/i.test(p.html)) {
+      reasons.push('patch HTML 含脚本或事件属性');
+    }
+  }
+
+  const destructiveRatio = destructiveTouched / bodyChildren;
+  if (destructiveRatio > 0.6) {
+    reasons.push(`破坏性改动范围过大: ${destructiveTouched}/${bodyChildren}`);
+  }
+  if (beforeHtml.length > 0 && injectedHtmlLength > beforeHtml.length * 1.5) {
+    reasons.push('patch 注入内容相对当前页面过大');
+  }
+
+  return {
+    risk: reasons.length ? 'high' : 'low',
+    reasons,
+    touched,
+    destructiveTouched,
+  };
+}
+
+function validatePatchShape(doc, patches) {
   if (!Array.isArray(patches) || patches.length === 0) {
     throw new Error('patch 列表为空');
   }
-  let touched = 0;
-  const allowedActions = new Set(['append', 'replace', 'remove']);
   for (const p of patches) {
     if (!p?.selector || typeof p.selector !== 'string') {
       throw new Error('patch 缺少 selector');
     }
-    if (!allowedActions.has(p.action)) {
+    if (!ALLOWED_PATCH_ACTIONS.has(p.action)) {
       throw new Error(`不支持的 patch action: ${p.action}`);
     }
     const targets = doc.querySelectorAll(p.selector);
     if (!targets.length) {
       throw new Error(`patch 未命中目标: ${p.selector}`);
     }
+  }
+}
+
+function applyPatchOperations(doc, patches) {
+  validatePatchShape(doc, patches);
+  let touched = 0;
+  for (const p of patches) {
+    const targets = doc.querySelectorAll(p.selector);
     touched += targets.length;
     targets.forEach((el) => {
       if (p.action === 'remove') el.remove();
@@ -167,9 +217,14 @@ export function applyPatchesSafely(patches) {
   const beforeHtml = getCurrentHtml();
   try {
     const doc = iframe().contentDocument;
+    validatePatchShape(doc, patches);
+    const assessment = analyzePatchRisk(doc, patches, beforeHtml);
+    if (assessment.risk === 'high') {
+      throw new Error(`patch 风险过高: ${assessment.reasons.join('；')}`);
+    }
     applyPatchOperations(doc, patches);
     const html = validatePatchedDocument(doc, beforeHtml);
-    return { ok: true, html };
+    return { ok: true, html, assessment };
   } catch (err) {
     renderFull(beforeHtml);
     return { ok: false, error: err.message, html: beforeHtml };
