@@ -26,3 +26,23 @@ export const STEPFUN_ENDPOINT = 'https://api.stepfun.com/v1/chat/completions';
 
 // 标识 key 是否就绪，缺失时路由层会明确报错而不是静默失败
 export const HAS_API_KEY = STEPFUN_API_KEY.trim().length > 0;
+
+// 允许引用的外链素材/库域名白名单。
+// 策略：页面不再要求完全自包含，可引用白名单内的图片、icon、视频、3D 模型与 CDN 库。
+// 维护原则：只放开“资源引用”，脚本越权与危险协议仍由 patch 风险评分等机制拦截。
+export const ALLOWED_ASSET_DOMAINS = [
+  // 站内图片生成接口（稳定素材）
+  'copilot-cn.bytedance.net',
+  // 常用 CDN 库（three.js / GSAP 等）
+  'unpkg.com',
+  'cdn.jsdelivr.net',
+  'cdnjs.cloudflare.com',
+  // 常用免费图片/视频素材
+  'images.unsplash.com',
+  'source.unsplash.com',
+  'images.pexels.com',
+  'cdn.pixabay.com',
+  // 图标
+  'cdn.simpleicons.org',
+  'api.iconify.design',
+];
