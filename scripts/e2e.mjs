@@ -86,35 +86,28 @@ async function testLocalNative3d(page) {
   });
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!document.querySelector('#status-text')?.textContent);
   await page.evaluate(() => {
-    window.postMessage(
-      {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
         __aioux: true,
         kind: 'frame-capabilities',
         capabilities: { sceneType: 'interactive_3d', nativeInteractions: ['tap_background', 'swipe', 'drag_rotate'] },
       },
-      '*'
-    );
-  });
-  await page.waitForFunction(async () => {
-    const stage = await import('/js/stage.js');
-    return stage.getCapabilities().sceneType === 'interactive_3d';
-  });
-  await page.evaluate(() => {
-    window.postMessage(
-      { __aioux: true, kind: 'frame-pointer', phase: 'down', x: 100, y: 100, w: 1000, h: 1000, label: null },
-      '*'
-    );
-    window.postMessage(
-      { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
-      '*'
-    );
+    }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { __aioux: true, kind: 'frame-pointer', phase: 'down', x: 100, y: 100, w: 1000, h: 1000, label: null },
+    }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
+    }));
   });
   await page.waitForTimeout(500);
   const statusText = await page.textContent('#status-text');
+  const caps = await page.evaluate(async () => (await import('/js/stage.js')).getCapabilities());
 
   assert(interactCount === 0, `3D 本地点击不应触发 /api/interact，实际 ${interactCount}`);
-  assert(statusText?.includes('未触发重新生成'), `状态栏未显示本地处理结果: ${statusText}`);
+  assert(statusText?.includes('未触发重新生成'), `状态栏未显示本地处理结果: ${statusText}; caps=${JSON.stringify(caps)}`);
 
   console.log('[e2e] local 3D interaction ok');
   console.log(`[e2e] status: ${statusText}`);
