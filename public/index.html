@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AIOUX · 生成式交互界面</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部控制栏 -->
+    <header id="topbar">
+      <div class="brand">AIOUX<span>· Generative UX</span></div>
+      <nav id="breadcrumb" class="breadcrumb" aria-label="面包屑导航"></nav>
+      <div class="controls">
+        <button id="mode-voice" class="mode-btn" title="语音输入">🎙 语音</button>
+        <button id="mode-vision" class="mode-btn" title="摄像头视觉">📷 视觉</button>
+        <button id="mode-ar" class="mode-btn" title="AR 增强现实">🪄 AR</button>
+        <button id="btn-home" class="mode-btn" title="回到主页">🏠 主页</button>
+      </div>
+    </header>
+
+    <!-- 文本意图输入 -->
+    <div id="prompt-bar">
+      <input id="prompt-input" type="text"
+        placeholder="输入意图，如“做一张广州旅游地图”，回车发送；或直接在画面上点击/圈选探索" />
+      <button id="prompt-send">生成</button>
+    </div>
+
+    <main id="main">
+      <!-- 中央舞台：sandbox iframe 渲染模型生成的界面 -->
+      <section id="stage-wrap">
+        <iframe id="stage" sandbox="allow-scripts allow-same-origin allow-popups"
+          title="生成界面舞台"></iframe>
+        <!-- 选区/手势可视化覆盖层 -->
+        <canvas id="overlay"></canvas>
+        <!-- 空白欢迎页 -->
+        <div id="welcome">
+          <h1>从一句话开始<br />让模型为你实时生成可交互界面</h1>
+          <p>支持 鼠标 / 触摸 / 手势（点击·长按·滑动·捏合·框选·圈选）· 语音 · 摄像头视觉 · AR</p>
+          <p class="hint">每次界面更新都会记入页面图谱，可随时回退、跳转、回到主页。</p>
+        </div>
+        <!-- 加载指示 -->
+        <div id="loading" class="hidden"><div class="spinner"></div><span>模型生成中…</span></div>
+      </section>
+
+      <!-- 侧边图谱导航面板 -->
+      <aside id="sidebar">
+        <h2>页面图谱</h2>
+        <div id="graph-tree" class="graph-tree"></div>
+        <h3>当前节点版本</h3>
+        <div id="version-list" class="version-list"></div>
+      </aside>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer id="statusbar">
+      <span id="status-action" class="badge">就绪</span>
+      <span id="status-text">等待你的第一次交互…</span>
+    </footer>
+  </div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

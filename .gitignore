@@ -1,0 +1,7 @@
+node_modules/
+.env
+snapshots/
+.agents/
+.trae/skills/
+*.log
+.DS_Store

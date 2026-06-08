@@ -1,0 +1,20 @@
+{
+  "name": "aioux",
+  "version": "0.1.0",
+  "description": "Step-3.5-Flash 实时生成式 UX 交互 Demo（页面图谱 + 多模态交互）",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "simple-git": "^3.25.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
+  }
+}
