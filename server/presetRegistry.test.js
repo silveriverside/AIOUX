@@ -8,6 +8,7 @@ import {
   listSceneTypes,
   selectPresetVariant,
   isAllowedAssetUrl,
+  loadPresetVariants,
 } from './presetRegistry.js';
 
 test('seeds builtin variants for all four experience presets', () => {
@@ -73,3 +74,12 @@ test('rejects invalid variant registration', () => {
   assert.throws(() => registerPresetVariant({ id: 'a', sceneType: '', promptSection: 'y' }));
   assert.throws(() => registerPresetVariant({ id: 'a', sceneType: 'x', promptSection: '' }));
 });
+
+test('loads variant files from variants directory and registers them', async () => {
+  const result = await loadPresetVariants({ force: true });
+  assert.ok(result.loaded >= 1, `期望至少加载 1 个变体文件，实际 ${result.loaded}`);
+  // 内置 + 至少一个目录变体后，3D 场景应有多个变体可选。
+  const variants3d = listPresetVariants({ sceneType: 'interactive_3d' });
+  assert.ok(variants3d.length >= 2, '加载变体后 3D 场景应有多个变体');
+});
+
