@@ -83,3 +83,17 @@ test('loads variant files from variants directory and registers them', async () 
   assert.ok(variants3d.length >= 2, '加载变体后 3D 场景应有多个变体');
 });
 
+test('specialized variant outranks broad builtin when keyword scores are close', async () => {
+  await loadPresetVariants({ force: true });
+  // “webgl 真实感”应选中专用变体，而非命中更多宽泛词（地球/旋转/3d）的 builtin。
+  const sel = selectPresetVariant({
+    text: '做一个可旋转的真实感地球 webgl 3D 展示',
+    currentCapabilities: { sceneType: 'interactive_3d' },
+  });
+  assert.ok(
+    !sel.primary.id.endsWith('__builtin'),
+    `专用变体应优先于宽泛 builtin，实际选中 ${sel.primary.id}`
+  );
+});
+
+

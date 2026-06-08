@@ -120,11 +120,17 @@ export function selectPresetVariant(interaction, { requestedVariantId = null } =
   const sceneType = interaction?.currentCapabilities?.sceneType || null;
 
   const scoreOf = (v) => keywordScore(text, v.keywords);
+  // 有效分 = 关键词命中数 + priority 加权。
+  // 目的：当专用 skill 变体（priority 高）与宽泛内置变体（priority 0）关键词分数接近时，
+  // 让更专用的变体胜出，避免“webgl 真实感”被命中更多宽泛词的 builtin 压制。
+  // 过滤门槛仍用原始关键词命中数（>0），避免 0 命中、仅靠 priority 的变体被全局选中。
+  const PRIORITY_WEIGHT = 0.5;
+  const effectiveOf = (v) => scoreOf(v) + v.priority * PRIORITY_WEIGHT;
   const rank = (list) =>
     [...list]
-      .map((v) => ({ v, score: scoreOf(v) }))
-      .sort((a, b) => b.score - a.score || b.v.priority - a.v.priority)
-      .filter((x) => x.score > 0);
+      .map((v) => ({ v, score: scoreOf(v), eff: effectiveOf(v) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.eff - a.eff || b.v.priority - a.v.priority);
 
   // 2. 在当前 sceneType 内挑关键词最优。
   if (sceneType) {
