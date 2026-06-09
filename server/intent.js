@@ -1,4 +1,5 @@
 // 意图编排：把交互事件 + 上下文组装为多模态 messages，并解析模型的混合输出
+import { performance } from 'node:perf_hooks';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { buildPresetContextText } from './presets.js';
 import { selectPresetVariant, formatVariantBlock } from './presetRegistry.js';
@@ -13,21 +14,33 @@ function truncateHtml(html) {
 }
 
 // 选出本次交互最匹配的预设变体，并构造注入文本（失败时返回空，不阻断主流程）。
+// 返回 { text, variant, reason, selectMs, meta }，其中 meta 是可观测用的精简变体信息。
 function buildSelectedVariantSection(interaction) {
+  const selectStart = performance.now();
   try {
     const requestedVariantId = interaction?.requestedVariantId || null;
     const { primary, reason } = selectPresetVariant(interaction, { requestedVariantId });
-    if (!primary) return { text: '', variant: null, reason };
+    const selectMs = Math.round((performance.now() - selectStart) * 1000) / 1000;
+    if (!primary) return { text: '', variant: null, reason, selectMs, meta: null };
     const text = [
       '【本次优先采用的预设变体】',
       `选择依据: ${reason}`,
       formatVariantBlock(primary),
       '请优先遵循该变体的生成准则；若与用户明确诉求冲突，以用户诉求为准并在 reasoning 说明。',
     ].join('\n');
-    return { text, variant: primary, reason };
+    const meta = {
+      id: primary.id,
+      name: primary.name,
+      sceneType: primary.sceneType,
+      skillSource: primary.skillSource,
+      priority: primary.priority,
+      reason,
+    };
+    return { text, variant: primary, reason, selectMs, meta };
   } catch (err) {
     console.warn('[intent] 预设变体选择失败，回退到通用范式摘要:', err.message);
-    return { text: '', variant: null, reason: 'error' };
+    const selectMs = Math.round((performance.now() - selectStart) * 1000) / 1000;
+    return { text: '', variant: null, reason: 'error', selectMs, meta: null };
   }
 }
 
@@ -37,10 +50,16 @@ function buildSelectedVariantSection(interaction) {
  *   { type, text, gesture, point, selection, audio:{dataUrl,format}, image:{dataUrl} }
  * @param {object} currentNode - { nodeId, title, html }
  * @param {Array} graphSummary - [{ nodeId, title, parentId }]
+ * @param {object} [observe] - 可选观测回填对象；传入时写入 observe.variant 与 observe.selectMs。
+ *   默认 null 时行为与改造前完全一致（纯增量、不影响 prompt 内容）。
  */
-export function buildMessages(interaction, currentNode, graphSummary) {
+export function buildMessages(interaction, currentNode, graphSummary, observe = null) {
   const presetContext = buildPresetContextText(interaction);
   const selected = buildSelectedVariantSection(interaction);
+  if (observe && typeof observe === 'object') {
+    observe.variant = selected.meta;
+    observe.selectMs = selected.selectMs;
+  }
   const contextText = [
     `【当前节点】nodeId=${currentNode.nodeId} title=${currentNode.title}`,
     `【当前页面 HTML】\n${truncateHtml(currentNode.html)}`,

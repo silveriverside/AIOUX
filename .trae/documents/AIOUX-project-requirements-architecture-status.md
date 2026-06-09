@@ -794,3 +794,13 @@ npm run e2e
 - 持久化选型：JSON 单文件 `snapshots/memory.json`（沿用 graph.json 范式，零新增依赖，可纳入 git 快照），不引 SQLite。
 - 验证记录：新增 4 个测试文件（profile/store/memory/summary）共 13 用例；`node --test` 全量 62/62 通过（49 基线 + 13），`GetDiagnostics` 无错误；并发 20 次 recordInteraction 计数无丢失，真实 `snapshots/` 未污染。
 - 待办（后续单独任务，需先确认）：接入主流程——在 `buildMessages` 的 contextText 注入 `buildMemorySection(...).text`、在决策写回流程调用 `recordInteraction`/`recordRevert`；建议在 telemetry 分支合并后再做，避免同改 intent.js 冲突。
+
+### 2026-06-08 变体选择可观测（feature/variant-telemetry）
+
+- 目标：把"本次选中了哪个预设变体、为何选中、选择耗时"打通到日志、timing 与 API 响应，让变体选择过程可观测可评测。
+- 改动（2 核心文件 + 1 测试，纯增量、向后兼容）：
+  - `server/intent.js`：`buildSelectedVariantSection` 记录 `selectMs` 并返回精简 `meta`（id/name/sceneType/skillSource/priority/reason）；`buildMessages` 新增可选第 4 参 `observe=null`，传入时回填 `observe.variant`、`observe.selectMs`；默认 null 时行为与改造前完全一致（不影响 prompt 内容）。
+  - `server/routes.js`：`/api/interact` 传 `observe={}` 取回 `selectedVariant`，写 `timing.selectMs`、`logTiming` 增加 `variantId/variantReason`，成功响应与 `shouldUpdate=false` 早返回均新增顶层 `variant` 字段（仅新增，前端不读不受影响）。
+  - 新增 `server/intent.variant.test.js`（3 用例）：回填 variant/selectMs、meta 字段齐全、传/不传 observe 的 messages 完全一致（不污染 prompt）。
+- 不接素材/记忆模块，避免与其未来接入 intent.js 冲突；选择失败时 `variant=null`、`reason='error'`，不伪装。
+- 验证记录：`node --test` 全量 88/88 通过（85 基线 + 3），`GetDiagnostics` 无错误；隔离真实模型验证（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3106`）：输入"真实感地球 webgl 3D"，响应 `variant={id:interactive_3d__threejs_webgl, reason:scene_keyword, priority:3}`、`timing.selectMs=0.139`、`modelMs≈15.2s`，成功 create `earth_3d_showcase`，印证选择器专精度修复在真实链路生效。
