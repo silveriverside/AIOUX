@@ -18,6 +18,7 @@ export const SNAPSHOTS_DIR = process.env.AIOUX_SNAPSHOTS_DIR
   : path.join(ROOT_DIR, 'snapshots');
 export const PAGES_DIR = path.join(SNAPSHOTS_DIR, 'pages');
 export const GRAPH_FILE = path.join(SNAPSHOTS_DIR, 'graph.json');
+export const MEMORY_FILE = path.join(SNAPSHOTS_DIR, 'memory.json');
 
 export const PORT = Number(process.env.PORT) || 3000;
 export const STEP_MODEL = process.env.STEP_MODEL || 'step-3.5-flash';

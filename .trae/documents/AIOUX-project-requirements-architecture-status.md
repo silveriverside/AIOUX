@@ -781,3 +781,16 @@ npm run e2e
 - 目录：`assets/library/`（含 `index.json` 初始 `[]`）入 git；`assets/cache/` 与 `assets/issues.jsonl` 已加入 `.gitignore`。测试用 `AIOUX_ASSETS_DIR` 临时目录隔离 + mock fetch，离线可跑。
 - 验证记录：新增 4 个测试文件（sources/store/issues/index）共 23 用例；`node --test` 全量 72/72 通过，`GetDiagnostics` 无错误。
 - 待办（后续单独任务，需先确认）：接入主生成流程（intent.js 提供素材给模型 / index.js 挂 `/assets` 静态路由）属核心逻辑改动，本分支只到自包含模块为止。
+
+### 2026-06-08 记忆模块（Memory）自包含落地（feature/memory-module）
+
+- `server/config.js` 仅新增 1 行常量：`export const MEMORY_FILE = path.join(SNAPSHOTS_DIR, 'memory.json');`（本分支独占，合并留意）。
+- 新建记忆模块（自包含，**暂不接入主生成流程**，刻意不碰 intent.js 以避开与 telemetry 分支冲突）：
+  - `memoryStore.js`：底层原子 IO，`loadMemoryFile/writeMemoryFile/createEmptyMemory`；损坏 JSON → warn + 默认结构（仿 graph.js）；原子写 tmp+rename；路径按 `AIOUX_SNAPSHOTS_DIR` 实时解析以隔离测试。
+  - `memoryProfile.js`：零 IO 纯函数 `updateProfile/extractKeywords/derivePreference`；`reverted` 只累加 variantReverts，净分 = count − reverts 随回退下降。
+  - `memory.js`：门面 + 内存单例 + 串行写队列（仿 snapshots commitQueue）；`recordInteraction/recordRevert/recordAssetUsage` 写入，`getPreferenceProfile/getPageMemory/findRelatedPages/listAssetsByNode` 读取；`shouldUpdate===false` 不污染画像；资产经 isAllowedAssetUrl 白名单校验，非法记 `asset_rejected` 事件不入索引。
+  - `memorySummary.js`：纯函数 `buildMemorySection`，冷启动返回 `{text:'',used:false}`，含"诉求优先"声明（仅设计未接线）。
+- 数据模型：`{version,updatedAt,pages,assets,preferences{sceneTypeCounts,variantCounts,variantReverts,keywordCounts,motionAffinity,threeDAffinity,totalSignals},events}`；events 环形缓冲限长。
+- 持久化选型：JSON 单文件 `snapshots/memory.json`（沿用 graph.json 范式，零新增依赖，可纳入 git 快照），不引 SQLite。
+- 验证记录：新增 4 个测试文件（profile/store/memory/summary）共 13 用例；`node --test` 全量 62/62 通过（49 基线 + 13），`GetDiagnostics` 无错误；并发 20 次 recordInteraction 计数无丢失，真实 `snapshots/` 未污染。
+- 待办（后续单独任务，需先确认）：接入主流程——在 `buildMessages` 的 contextText 注入 `buildMemorySection(...).text`、在决策写回流程调用 `recordInteraction`/`recordRevert`；建议在 telemetry 分支合并后再做，避免同改 intent.js 冲突。
