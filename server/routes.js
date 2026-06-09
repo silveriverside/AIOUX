@@ -126,14 +126,19 @@ router.post('/api/interact', async (req, res) => {
 });
 
 // 根据 action 操作图谱与快照
-function applyDecision(decision, currentNode, timing = {}) {
+export function applyDecision(decision, currentNode, timing = {}) {
   if (decision.action === 'navigate') {
     const navStart = performance.now();
     if (!graph.hasNode(decision.nodeId)) {
-      // 目标不存在：降级为提示，不跳转（记录为可改进项）
+      // 目标不存在：不跳转，明确标记为未应用（不把失败伪装成 applied:true）。
       console.warn('[navigate] 目标节点不存在:', decision.nodeId);
       timing.graphMs = Math.round(performance.now() - navStart);
-      return { html: snap.getNodeHtml(currentNode.nodeId), nodeId: currentNode.nodeId, navWarning: '目标节点不存在' };
+      return {
+        html: snap.getNodeHtml(currentNode.nodeId),
+        nodeId: currentNode.nodeId,
+        applied: false,
+        navWarning: `目标节点不存在: ${decision.nodeId}`,
+      };
     }
     graph.setCurrent(decision.nodeId);
     timing.graphMs = Math.round(performance.now() - navStart);
@@ -142,6 +147,15 @@ function applyDecision(decision, currentNode, timing = {}) {
 
   if (decision.action === 'create') {
     const graphStart = performance.now();
+    // 防止 create 命中已存在 nodeId 时静默覆盖既有页面：存在则生成去重后缀的新 nodeId。
+    if (graph.hasNode(decision.nodeId)) {
+      const baseId = decision.nodeId;
+      let suffix = 2;
+      while (graph.hasNode(`${baseId}_${suffix}`)) suffix += 1;
+      const dedupedId = `${baseId}_${suffix}`;
+      console.warn(`[create] nodeId 冲突，已去重: ${baseId} -> ${dedupedId}`);
+      decision.nodeId = dedupedId;
+    }
     graph.addNode({
       nodeId: decision.nodeId,
       title: decision.title,

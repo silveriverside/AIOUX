@@ -247,6 +247,8 @@ function fuzzyRepairKeys(obj) {
  */
 export function parseHybridOutput(raw, currentNode) {
   let jsonText = raw.trim();
+  // 标记：JSON 因截断而被"补后缀"修复成功——这类内容本质不完整、不可信，不应落地提交。
+  let truncatedRepair = false;
   // 容错：去掉可能的 ```json ``` 包裹
   const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) jsonText = fenceMatch[1].trim();
@@ -272,6 +274,7 @@ export function parseHybridOutput(raw, currentNode) {
     }
     if (repaired) {
       obj = repaired;
+      truncatedRepair = true;
     } else {
       return {
         ok: false,
@@ -444,6 +447,14 @@ export function parseHybridOutput(raw, currentNode) {
   };
 
   const result = { ok: true, decision };
+  if (truncatedRepair) {
+    // 截断修复的内容本质不完整（HTML 很可能被半路截断），不可信。
+    // 显式判失败并阻止落地：强制 shouldUpdate=false，让上层走 no-update 分支，不提交残缺页面。
+    decision.shouldUpdate = false;
+    result.ok = false;
+    result.error = '模型输出被截断（疑似超出 token 限制），已阻止落地以免提交残缺页面。此问题需关注（待修复 bug）。';
+    return result;
+  }
   if (recovered) {
     result.error = '警告：模型输出存在字段名损坏 bug，已自动修复。此问题需关注。';
     result.ok = false;
