@@ -804,3 +804,24 @@ npm run e2e
   - 新增 `server/intent.variant.test.js`（3 用例）：回填 variant/selectMs、meta 字段齐全、传/不传 observe 的 messages 完全一致（不污染 prompt）。
 - 不接素材/记忆模块，避免与其未来接入 intent.js 冲突；选择失败时 `variant=null`、`reason='error'`，不伪装。
 - 验证记录：`node --test` 全量 88/88 通过（85 基线 + 3），`GetDiagnostics` 无错误；隔离真实模型验证（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3106`）：输入"真实感地球 webgl 3D"，响应 `variant={id:interactive_3d__threejs_webgl, reason:scene_keyword, priority:3}`、`timing.selectMs=0.139`、`modelMs≈15.2s`，成功 create `earth_3d_showcase`，印证选择器专精度修复在真实链路生效。
+
+### 2026-06-08 下阶段规划与阻断性 bug 排查
+
+- 完成主线聚焦"阻断性/正确性 bug"的代码审查（覆盖 routes/intent/snapshots/graph/index/presetRegistry/assets/memory/config），并亲自核验关键项。确认下阶段路线：**先修阻断性 bug → 再做素材/记忆模块整合**。
+- 审查发现优先级（已核验真实存在）：
+  - P0-1：`revertNode`/`commitNode` 绕开 `commitQueue`，与异步快照并发写同一文件可能覆盖/提交错版本。
+  - P0-2：`commitNodeSnapshot` 提交时读最新磁盘态 `graph.json` 且 `git.commit` 不带 pathspec，导致 HTML 版本绑定错误时刻的图谱状态（串版本）。
+  - P1-5：`revertNode` 回退到当前版本（无变更）时 `git.commit` 抛 "nothing to commit" → 500。
+  - P1-1：JSON 截断补后缀修复后残缺 HTML 仍按成功路径落盘（违反"失败不伪装"）。
+  - P1-2：`create` 命中已存在 nodeId 静默覆盖既有页面。
+  - P1-4：navigate 目标不存在仍返回 `applied:true`（误导成功语义）。
+  - P2/P3：素材缓存并发写非原子、素材在线探测阻塞主路径、graph.current 全局单例并发、记忆模块未启动初始化且路径与 config 重复等（整合前置）。
+- 整合硬前置结论：P0 不修则记忆模块会绑定到错误节点、记忆与落盘内容不一致，因此 P0 必须先修。
+
+### 2026-06-08 修复快照串行一致性（fix/snapshot-serialize-all）
+
+- P0-1：新增 `enqueue(task)` 串行原语，`commitNode`/`commitNodeAsync`/`revertNode` 全部统一进同一 `commitQueue`，杜绝并发写同一节点文件。
+- P0-2：`commitNodeSnapshot` 改为显式 pathspec 提交（仅 `pages/<nodeId>.html` + `graph.json`，不带入 index 其它脏内容）；`commitNodeAsync` 新增第 4 参 `graphSnapshot`，由 `graph.serialize()` 在**入队时刻**捕获图谱状态，job 内提交前写回，消除队列等待期间被后续交互改写导致的串版本。`routes.js` 的 `/api/interact` 与 `/api/sync` 两处调用均传入 `graph.serialize()`。
+- P1-5：`commitNodeSnapshot` 与 `revertNode` 提交前用 `git.status` 检查变更，无变更则跳过 commit 并回读 HEAD，避免空提交报错。
+- 影响范围：`server/snapshots.js`、`server/graph.js`（加 `serialize()`）、`server/routes.js`（两处传参）。纯一致性修复，不改对外 API 形状。
+- 验证记录：`server/snapshots.test.js` 新增 2 回归用例（入队时刻图谱快照固定、revert 无变更不报错）共 3/3 通过；`node --test` 全量 90/90 通过；`GetDiagnostics` 无错误；隔离 E2E（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3107`）全绿（server/3D 本地交互/snapshot status/sync=1/patch guard 均 ok），临时目录已清理。

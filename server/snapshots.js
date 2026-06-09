@@ -2,7 +2,7 @@
 import { simpleGit } from 'simple-git';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SNAPSHOTS_DIR, PAGES_DIR } from './config.js';
+import { SNAPSHOTS_DIR, PAGES_DIR, GRAPH_FILE } from './config.js';
 
 let git;
 let commitQueue = Promise.resolve();
@@ -27,31 +27,52 @@ export async function initSnapshots() {
   }
 }
 
-/**
- * 写入节点 HTML 并提交一个版本。
- * @returns {Promise<string>} 新提交的短 hash
- */
-export async function commitNode(nodeId, html, message) {
-  writeNodeHtml(nodeId, html);
-  return commitNodeSnapshot(nodeId, message);
+// 把一个异步任务串行链到全局提交队列，保证所有"写文件 + git 操作"互不并发。
+// 返回该任务的 Promise；队列自身吞掉错误以免阻断后续任务。
+function enqueue(task) {
+  const result = commitQueue.then(task);
+  commitQueue = result.catch(() => {});
+  return result;
 }
 
 export function writeNodeHtml(nodeId, html) {
   fs.writeFileSync(nodeFile(nodeId), html, 'utf8');
 }
 
+/**
+ * 写入节点 HTML 并提交一个版本（同步路径，已统一进串行队列）。
+ * @returns {Promise<string>} 新提交的短/全 hash；无变更时返回 ''。
+ */
+export async function commitNode(nodeId, html, message) {
+  return enqueue(async () => {
+    writeNodeHtml(nodeId, html);
+    return commitNodeSnapshot(nodeId, message);
+  });
+}
+
+// 在串行队列内部执行：提交本节点 HTML + graph.json（显式 pathspec，避免带入 index 其它脏内容）。
+// 提交前检查是否有实际变更；无变更则跳过 commit 直接返回 ''，避免 "nothing to commit" 报错。
 async function commitNodeSnapshot(nodeId, message) {
-  await git.add(`pages/${nodeId}.html`);
-  // 写入 graph.json 也一并提交（由 graph 模块负责写文件，这里负责纳入提交）
-  const graphRel = 'graph.json';
-  if (fs.existsSync(path.join(SNAPSHOTS_DIR, graphRel))) {
-    await git.add(graphRel);
+  const pathspec = [`pages/${nodeId}.html`];
+  if (fs.existsSync(GRAPH_FILE)) pathspec.push('graph.json');
+  await git.add(pathspec);
+  const status = await git.status(['--', ...pathspec]);
+  if (!status.files.length) {
+    // 无实际变更：不产生空提交，回读当前 HEAD 作为版本标识。
+    return git.revparse(['HEAD']).catch(() => '');
   }
-  const res = await git.commit(message || `update ${nodeId}`);
+  const res = await git.commit(message || `update ${nodeId}`, pathspec);
   return res.commit || await git.revparse(['HEAD']);
 }
 
-export function commitNodeAsync(nodeId, html, message) {
+/**
+ * 异步提交节点快照：入队时即捕获图谱状态字符串，提交前写回，确保 HTML 版本与该次交互时刻的图谱一致。
+ * @param {string} nodeId
+ * @param {string} html
+ * @param {string} message
+ * @param {string|null} graphSnapshot 入队时刻的 graph.json 内容（由 graph.serialize() 提供）
+ */
+export function commitNodeAsync(nodeId, html, message, graphSnapshot = null) {
   const jobId = `snap_${Date.now()}_${nextJobSeq++}`;
   const startedAt = Date.now();
   snapshotJobs.set(jobId, {
@@ -65,9 +86,13 @@ export function commitNodeAsync(nodeId, html, message) {
     error: null,
   });
 
-  const promise = commitQueue.then(async () => {
+  const promise = enqueue(async () => {
     try {
       writeNodeHtml(nodeId, html);
+      // 写回入队时刻捕获的图谱状态，避免提交到队列等待期间被后续交互改写的最新态（串版本）。
+      if (typeof graphSnapshot === 'string') {
+        fs.writeFileSync(GRAPH_FILE, graphSnapshot, 'utf8');
+      }
       const commit = await commitNodeSnapshot(nodeId, message);
       const finishedAt = Date.now();
       const job = snapshotJobs.get(jobId);
@@ -77,7 +102,7 @@ export function commitNodeAsync(nodeId, html, message) {
         elapsedMs: finishedAt - startedAt,
         commit,
       });
-      console.log(`[snapshot] async commit done job=${jobId} node=${nodeId} commit=${commit.slice(0, 8)} elapsed=${job.elapsedMs}ms`);
+      console.log(`[snapshot] async commit done job=${jobId} node=${nodeId} commit=${(commit || '').slice(0, 8)} elapsed=${job.elapsedMs}ms`);
       return commit;
     } catch (err) {
       const finishedAt = Date.now();
@@ -92,7 +117,6 @@ export function commitNodeAsync(nodeId, html, message) {
       throw err;
     }
   });
-  commitQueue = promise.catch(() => {});
   return { jobId, promise };
 }
 
@@ -119,10 +143,20 @@ export async function listNodeHistory(nodeId) {
   }));
 }
 
-// 把某节点回退到指定版本（用 checkout 该版本的文件内容，再提交为新版本）
+// 把某节点回退到指定版本（用 checkout 该版本的文件内容，再提交为新版本）。
+// 统一进串行队列，避免与异步快照并发写同一文件；无变更时跳过空提交。
 export async function revertNode(nodeId, fullHash) {
-  await git.checkout([fullHash, '--', `pages/${nodeId}.html`]);
-  const html = getNodeHtml(nodeId);
-  const res = await git.commit(`revert ${nodeId} to ${fullHash.slice(0, 8)}`, [`pages/${nodeId}.html`]);
-  return { html, commit: res.commit || '' };
+  return enqueue(async () => {
+    await git.checkout([fullHash, '--', `pages/${nodeId}.html`]);
+    const html = getNodeHtml(nodeId);
+    const pathspec = [`pages/${nodeId}.html`];
+    await git.add(pathspec);
+    const status = await git.status(['--', ...pathspec]);
+    if (!status.files.length) {
+      const commit = await git.revparse(['HEAD']).catch(() => '');
+      return { html, commit };
+    }
+    const res = await git.commit(`revert ${nodeId} to ${fullHash.slice(0, 8)}`, pathspec);
+    return { html, commit: res.commit || '' };
+  });
 }

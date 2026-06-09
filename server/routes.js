@@ -176,7 +176,8 @@ function applyDecision(decision, currentNode, timing = {}) {
 
   const message = `[${decision.action}] ${decision.title}: ${decision.intent}`;
   const snapshotStart = performance.now();
-  const snapshotJob = snap.commitNodeAsync(decision.nodeId, html, message);
+  // 入队时刻捕获图谱状态，随快照一起提交，避免队列等待期间被后续交互改写（串版本）。
+  const snapshotJob = snap.commitNodeAsync(decision.nodeId, html, message, graph.serialize());
   timing.snapshotEnqueueMs = Math.round(performance.now() - snapshotStart);
   snapshotJob.promise.catch(() => {
     // 后台队列内部已记录错误；这里避免未处理 Promise 影响进程。
@@ -215,7 +216,7 @@ router.post('/api/sync', (req, res) => {
   }
   try {
     const snapshotStart = performance.now();
-    const snapshotJob = snap.commitNodeAsync(nodeId, html, `[sync] ${nodeId}`);
+    const snapshotJob = snap.commitNodeAsync(nodeId, html, `[sync] ${nodeId}`, graph.serialize());
     timing.snapshotEnqueueMs = Math.round(performance.now() - snapshotStart);
     snapshotJob.promise.catch(() => {
       // 后台队列内部已记录错误；这里避免未处理 Promise 影响进程。
