@@ -753,3 +753,18 @@ npm run e2e
 - 真实模型生成验收（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3104`）：输入“做一个可旋转的真实感地球 webgl 3D 展示”，模型 `create` 了 `earth_3d_webgl`，整页 6083 字符，`modelMs≈17811ms`、`applyMs=2ms`，含 `data-explorable` 热点与外链图片，变体注入链路打通、服务启动加载 3 个变体文件。
 - **发现待修复 P1（选择质量 bug，非正常表现）**：上述 query 的变体选择器选中了 `interactive_3d__builtin`（命中宽泛词“地球/旋转/3d”得 3 分）而非专用的 `interactive_3d__threejs_webgl`（命中“webgl/真实感”得 2 分）。内置种子变体关键词过宽，会压制更专用的 skill 变体；且当前选择器只按关键词命中数排序、未考虑变体专精度与 priority 加权，生成结果也未严格遵循被注入变体（本次产出退化为 CSS3D 而非 WebGL）。
   - 后续修复方向（分支 `fix/preset-selection-specificity`）：① 内置种子变体降权或收窄关键词；② 选择器在关键词同分/接近时用 `priority` 与“专用 skill 标识”加权，让专用变体优先；③ 可在评测集中加入“webgl 真实感→threejs 变体”“轻量→css3d 变体”等期望用例，量化选择准确率。
+
+### 2026-06-08 阶段验收（选择器修复后）
+
+- 选择器专精度 P1 已由 PR #15 修复并合入 `main`：引入 `priority*0.5` 加权（`eff = score + priority*0.5`），过滤门槛仍按关键词命中数 `>0`；回归用例断言“webgl 真实感”查询不再选中 `__builtin`。
+- 主线全量测试 42/42 通过（`server/*.test.js` + `public/js/route-interaction.test.js`），`GetDiagnostics` 无错误；工作区干净，`HEAD` 与 `origin/main` 同步。
+- 当前变体盘点：3D 场景 4 变体（`threejs_webgl`/`css3d_lite`/`gsap_motion`/`builtin`）、2D 场景 4 变体（`svg_dataviz`/`map_explore`/`timeline_story`/`builtin`）；卡片、沉浸场景目前仅有 `builtin` 种子，缺专用变体。
+- 观测底座已就位：`traceId` + 全流程 timing 埋点（PR #7）、意图路由纯函数 + 23 条评测集（PR #13）；但变体“选中了哪个/为何选中”尚未回填到 timing 与 API 响应，选择过程不可观测。
+- 本轮并行四方向（已确认）：① 卡片/沉浸场景专用变体；② 变体选择可观测（telemetry）；③ 素材模块（联网+本地搜集维护）；④ 记忆模块（页面/素材/偏好索引）。接入方式：后端选变体注入 prompt；并行方式：意图与多场景（2D/3D/卡片/沉浸）多 subagent 并行，变体以独立文件自注册保证零文件冲突。
+
+### 2026-06-08 卡片/沉浸场景专用变体落地（feature/preset-card-immersive-variants）
+
+- 新增卡片场景 2 变体（`server/presets/variants/card_browser_packs.js`）：`card_browser__editorial_grid`（杂志策展式非对称 CSS Grid + @fontsource 特色字体，priority 2）、`card_browser__masonry_gallery`（瀑布流/masonry 画廊图集，priority 2）。
+- 新增沉浸场景 2 变体（`server/presets/variants/immersive_media_packs.js`）：`immersive_media__cinematic_scroll`（GSAP ScrollTrigger pin/scrub 电影化分镜滚动叙事，priority 3）、`immersive_media__hero_parallax`（单屏强视觉首屏视差，鼠标/陀螺仪联动，priority 3）。
+- 设计要点：字体走 `@fontsource` via `cdn.jsdelivr.net`（已在白名单内，无需扩充白名单）；封面/主视觉优先 `copilot-cn.bytedance.net` text_to_image；hover/视差仅动 transform/opacity 避免重排；均含 `prefers-reduced-motion` 降级；GSAP 失败降级到 IntersectionObserver 并标注为待修复异常。至此四大场景均具备专用变体：3D 4 个、2D 4 个、卡片 3 个、沉浸 3 个。
+- 验证记录：新增 `server/presetCardImmersiveVariants.test.js` 7 条用例（注册 + 关键词选中 + 专用变体不被 builtin 压制）全过；`node --test` 全量 49/49 通过；隔离启动（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3105`）确认 `[presetRegistry] 变体加载完成 loaded=5`、`/api/status` 正常，临时服务与目录已清理。
