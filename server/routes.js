@@ -41,6 +41,8 @@ router.post('/api/interact', async (req, res) => {
       type: interaction?.type || 'unknown',
       intentHint: interaction?.intentHint || '',
       sceneType: interaction?.currentCapabilities?.sceneType || 'generic',
+      variantId: selectedVariant?.id || 'none',
+      variantReason: selectedVariant?.reason || 'none',
       action: decision?.action || 'n/a',
       mode: decision?.mode || 'n/a',
       nodeId: decision?.nodeId || 'n/a',
@@ -49,6 +51,8 @@ router.post('/api/interact', async (req, res) => {
       extra,
     }));
   };
+  // 本次交互选中的预设变体（可观测），由 buildMessages 通过 observe 回填。
+  let selectedVariant = null;
 
   if (!interaction) {
     finishTiming();
@@ -68,7 +72,10 @@ router.post('/api/interact', async (req, res) => {
   let raw;
   try {
     const messageStart = performance.now();
-    const messages = buildMessages(interaction, currentNode, graph.listNodes());
+    const observe = {};
+    const messages = buildMessages(interaction, currentNode, graph.listNodes(), observe);
+    selectedVariant = observe.variant || null;
+    timing.selectMs = observe.selectMs;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
     raw = await chatCompletion(messages, { response_format: { type: 'json_object' } });
@@ -90,7 +97,7 @@ router.post('/api/interact', async (req, res) => {
   if (!decision.shouldUpdate) {
     finishTiming();
     logTiming(decision, false, 'skip=no_update');
-    return res.json({ traceId, decision, error: error || null, applied: false, timing });
+    return res.json({ traceId, decision, error: error || null, applied: false, variant: selectedVariant, timing });
   }
 
   try {
@@ -104,6 +111,7 @@ router.post('/api/interact', async (req, res) => {
       error: error || null,
       applied: true,
       traceId,
+      variant: selectedVariant,
       timing,
       ...result,
       graph: graph.getGraph(),
