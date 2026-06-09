@@ -5,3 +5,5 @@ snapshots/
 .trae/skills/
 *.log
 .DS_Store
+assets/cache/
+assets/issues.jsonl
