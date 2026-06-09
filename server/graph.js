@@ -42,6 +42,11 @@ function persist() {
   fs.writeFileSync(GRAPH_FILE, JSON.stringify(graph, null, 2), 'utf8');
 }
 
+// 序列化当前内存图谱为 JSON 字符串（供快照在入队时刻捕获图谱状态，避免串版本）。
+export function serialize() {
+  return JSON.stringify(graph, null, 2);
+}
+
 export function getNode(nodeId) {
   return graph.nodes[nodeId] || null;
 }

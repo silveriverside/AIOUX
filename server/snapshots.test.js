@@ -37,3 +37,30 @@ test('serializes async snapshot writes with their matching git commits', async (
   assert.equal(snapshots.getSnapshotJob(first.jobId).status, 'done');
   assert.equal(snapshots.getSnapshotJob(second.jobId).status, 'done');
 });
+
+test('pins the graph snapshot captured at enqueue time (no cross-version)', async () => {
+  await snapshots.initSnapshots();
+  const graphFile = path.join(tempRoot, 'graph.json');
+
+  // 入队两次：各自携带"入队时刻"的不同图谱状态。
+  const graphA = JSON.stringify({ nodes: { main: {} }, current: 'node_a' }, null, 2);
+  const graphB = JSON.stringify({ nodes: { main: {} }, current: 'node_b' }, null, 2);
+  const a = snapshots.commitNodeAsync('pin_node', '<main>A</main>', 'version A', graphA);
+  const b = snapshots.commitNodeAsync('pin_node', '<main>B</main>', 'version B', graphB);
+  await Promise.allSettled([a.promise, b.promise]);
+
+  // 队列串行执行后，磁盘 graph.json 应等于最后一个 job 携带的快照（graphB），而非中途被串改。
+  assert.equal(fs.readFileSync(graphFile, 'utf8'), graphB);
+});
+
+test('revert without actual change does not throw on empty commit', async () => {
+  await snapshots.initSnapshots();
+  await snapshots.commitNode('revert_node', '<main>v1</main>', 'v1');
+  const history = await snapshots.listNodeHistory('revert_node');
+  const firstHash = history[history.length - 1].fullHash;
+
+  // 回退到当前唯一版本（内容相同）：应安全返回，不因 "nothing to commit" 抛错。
+  const result = await snapshots.revertNode('revert_node', firstHash);
+  assert.equal(result.html, '<main>v1</main>');
+  assert.ok(typeof result.commit === 'string');
+});
