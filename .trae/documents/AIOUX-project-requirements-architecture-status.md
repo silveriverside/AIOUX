@@ -768,3 +768,16 @@ npm run e2e
 - 新增沉浸场景 2 变体（`server/presets/variants/immersive_media_packs.js`）：`immersive_media__cinematic_scroll`（GSAP ScrollTrigger pin/scrub 电影化分镜滚动叙事，priority 3）、`immersive_media__hero_parallax`（单屏强视觉首屏视差，鼠标/陀螺仪联动，priority 3）。
 - 设计要点：字体走 `@fontsource` via `cdn.jsdelivr.net`（已在白名单内，无需扩充白名单）；封面/主视觉优先 `copilot-cn.bytedance.net` text_to_image；hover/视差仅动 transform/opacity 避免重排；均含 `prefers-reduced-motion` 降级；GSAP 失败降级到 IntersectionObserver 并标注为待修复异常。至此四大场景均具备专用变体：3D 4 个、2D 4 个、卡片 3 个、沉浸 3 个。
 - 验证记录：新增 `server/presetCardImmersiveVariants.test.js` 7 条用例（注册 + 关键词选中 + 专用变体不被 builtin 压制）全过；`node --test` 全量 49/49 通过；隔离启动（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3105`）确认 `[presetRegistry] 变体加载完成 loaded=5`、`/api/status` 正常，临时服务与目录已清理。
+
+### 2026-06-08 素材模块（Assets）自包含落地（feature/asset-service）
+
+- 新建 `server/assets/` 自包含模块（暂不接入主生成流程），文件均 < 200 行：
+  - `sources.js`：在线源 URL 构造 + 可注入 fetch 的可达性探测。`buildText2ImageUrl`（imageSize 非法回退 landscape_16_9）、`buildUnsplashKeywordUrl`、`buildIconUrl`（api.iconify.design）、`probeAssetUrl`（HEAD 失败回退 GET、AbortController 超时，显式区分 timeout/bad_status/network_error）。
+  - `store.js`：本地库 + 缓存索引。`ASSETS_DIR` 在本文件内解析（读 `AIOUX_ASSETS_DIR`，未改 config.js）；`makeCacheKey`（关键词归一化排序，乱序同键）；`findInLibrary` 关键词打分；`loadCacheIndex/getCached/putCached`（原子写 tmp+rename，损坏重建不抛）。
+  - `issues.js`：失效问题记录 `recordAssetIssue` 追加 `issues.jsonl` 返回 issueId（含 `resolved:false`），`listAssetIssues`。
+  - `index.js`：门面 `resolveAsset`（本地→缓存→在线→降级，每步 timingMs）、`resolveAssets`（并发上限 4）、`validateAssetUrl`（薄封装 isAllowedAssetUrl）。
+- 失效兜底严格不伪装：所有失败路径返回 `degraded:true` + `issueId` 并写 `issues.jsonl`，兜底用内联 data-URI SVG 占位；video/model 类型无源时明确返回不支持而非伪装成功。
+- 来源策略：首版不引入需 key 的图床 API、不扩白名单（source.unsplash / text_to_image / iconify / simpleicons 均已在册）。
+- 目录：`assets/library/`（含 `index.json` 初始 `[]`）入 git；`assets/cache/` 与 `assets/issues.jsonl` 已加入 `.gitignore`。测试用 `AIOUX_ASSETS_DIR` 临时目录隔离 + mock fetch，离线可跑。
+- 验证记录：新增 4 个测试文件（sources/store/issues/index）共 23 用例；`node --test` 全量 72/72 通过，`GetDiagnostics` 无错误。
+- 待办（后续单独任务，需先确认）：接入主生成流程（intent.js 提供素材给模型 / index.js 挂 `/assets` 静态路由）属核心逻辑改动，本分支只到自包含模块为止。
