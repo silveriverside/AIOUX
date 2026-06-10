@@ -825,3 +825,13 @@ npm run e2e
 - P1-5：`commitNodeSnapshot` 与 `revertNode` 提交前用 `git.status` 检查变更，无变更则跳过 commit 并回读 HEAD，避免空提交报错。
 - 影响范围：`server/snapshots.js`、`server/graph.js`（加 `serialize()`）、`server/routes.js`（两处传参）。纯一致性修复，不改对外 API 形状。
 - 验证记录：`server/snapshots.test.js` 新增 2 回归用例（入队时刻图谱快照固定、revert 无变更不报错）共 3/3 通过；`node --test` 全量 90/90 通过；`GetDiagnostics` 无错误；隔离 E2E（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3107`）全绿（server/3D 本地交互/snapshot status/sync=1/patch guard 均 ok），临时目录已清理。
+
+### 2026-06-08 修复生成正确性（fix/generation-correctness）
+
+- P1-1：`parseHybridOutput` 区分"截断补后缀修复"与"字段名修复"；截断修复成功的内容本质不完整（HTML 多被半路截断），强制 `shouldUpdate=false` 并返回明确 error，让 `/api/interact` 走 no-update 分支不落地，不再把残缺页面伪装成成功提交。
+- P1-2：`applyDecision` 在 `create` 命中已存在 nodeId 时生成去重后缀（`<id>_2`、`_3`…）作为新节点，保留既有页面不被覆盖；并打印冲突告警。
+- P1-4：`navigate` 目标不存在时返回 `applied:false` + 明确 `navWarning`（含目标 id），不再固定报 `applied:true`；`current` 不变。成功响应用 `...result` 展开会正确覆盖外层默认 `applied:true`。
+- 为可测试性将 `applyDecision` 导出。
+- 影响范围：`server/intent.js`、`server/routes.js`。
+- 验证记录：`server/intent.test.js` 新增 2 用例（截断不落地、正常输出不受影响），新增 `server/routes.applyDecision.test.js` 2 用例（navigate 不存在 applied:false、create 冲突去重不覆盖）；`node --test` 全量 94/94 通过；`GetDiagnostics` 无错误；隔离 E2E（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3108`）全绿。
+- 阶段 A（阻断性 bug）至此完成（P0-1/P0-2/P1-1/P1-2/P1-4/P1-5）。P1-3（patch-stay 依赖前端 sync）按决定暂不动，记为待观察。下一步进入阶段 B：素材/记忆模块整合（前置依赖见上节）。
