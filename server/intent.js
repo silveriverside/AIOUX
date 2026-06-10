@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { buildPresetContextText } from './presets.js';
 import { selectPresetVariant, formatVariantBlock } from './presetRegistry.js';
+import { buildMemorySection } from './memorySummary.js';
 
 // 控制回传给模型的当前页 HTML 长度，避免上下文超限
 const MAX_HTML_CHARS = 6000;
@@ -56,6 +57,7 @@ function buildSelectedVariantSection(interaction) {
 export function buildMessages(interaction, currentNode, graphSummary, observe = null) {
   const presetContext = buildPresetContextText(interaction);
   const selected = buildSelectedVariantSection(interaction);
+  const memorySection = buildMemorySection(interaction, currentNode);
   if (observe && typeof observe === 'object') {
     observe.variant = selected.meta;
     observe.selectMs = selected.selectMs;
@@ -66,6 +68,7 @@ export function buildMessages(interaction, currentNode, graphSummary, observe = 
     `【已存在节点列表（可作为 navigate 目标）】\n${JSON.stringify(graphSummary, null, 0)}`,
     presetContext,
     selected.text,
+    memorySection.text,
     `【本次交互】\n${describeInteraction(interaction)}`,
   ]
     .filter(Boolean)
