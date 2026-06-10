@@ -4,12 +4,14 @@ import path from 'node:path';
 import { router } from './routes.js';
 import { initGraph } from './graph.js';
 import { initSnapshots } from './snapshots.js';
+import { initMemory } from './memory.js';
 import { loadPresetVariants } from './presetRegistry.js';
 import { PORT, ROOT_DIR, HAS_API_KEY } from './config.js';
 
 async function start() {
   await initSnapshots();
   initGraph();
+  initMemory();
   // 加载场景预设变体（server/presets/variants/ 下各文件自注册），目录不存在则跳过。
   const variantResult = await loadPresetVariants();
   console.log(`[presetRegistry] 变体加载完成 loaded=${variantResult.loaded} reason=${variantResult.reason || 'ok'}`);
