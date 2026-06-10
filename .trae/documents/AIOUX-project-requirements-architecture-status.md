@@ -843,3 +843,11 @@ npm run e2e
 - 测试：`server/memoryStore.test.js` 新增路径一致性用例，断言 `resolveMemoryFile() === config.MEMORY_FILE` 且指向临时 `AIOUX_SNAPSHOTS_DIR/memory.json`。
 - 验证记录：记忆相关测试 9/9 通过；`node --test` 全量 95/95 通过；`GetDiagnostics` 无错误；隔离启动（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3109`）`/api/status` 正常，临时目录已清理。
 - 影响：纯路径/初始化前置，不接入生成主流程、不写记忆内容、不改变 API 响应。
+
+### 2026-06-08 阶段 B 前置：素材缓存写安全与库索引缓存（feature/assets-cache-safety）
+
+- 目标：修复整合前置 P2-1 / P2-6。此前 `server/assets/store.js` 每次都会从磁盘全量读取 `library/index.json` 与 `cache/index.json`；`putCached()` 采用“读文件 → 合并 → 写文件”，同进程内连续写入的一致性依赖磁盘态，不够稳。
+- 改动：为本地库索引和缓存索引引入进程内缓存（`libraryIndexCache` / `cacheIndexCache`），用文件 `mtimeMs` 作为失效判断；文件未变时复用缓存、文件变更时自动重读。`putCached()` 改为基于当前内存缓存合并后再原子落盘，落盘完成后刷新缓存与 mtime，避免同进程内丢更新并减少重复读盘。
+- 测试：`server/assets/store.test.js` 新增 `afterEach` 清缓存；新增 2 个回归用例：① 本地库索引在文件未变时复用缓存、文件变更后自动刷新；② 连续 `putCached()` 两条缓存项都会保留，不再依赖每次先重读磁盘态。
+- 验证记录：`server/assets/*.test.js` 共 25/25 通过；`node --test` 全量 97/97 通过；`GetDiagnostics` 无错误。
+- 影响：纯素材模块底层优化，不接入主生成流程、不改变 `resolveAsset()` 的对外返回结构；为后续素材接线降低磁盘 IO 和一致性风险。

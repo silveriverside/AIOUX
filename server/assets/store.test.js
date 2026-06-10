@@ -9,6 +9,10 @@ process.env.AIOUX_ASSETS_DIR = tempRoot;
 
 const store = await import(`./store.js?case=${Date.now()}`);
 
+test.afterEach(() => {
+  store.__resetStoreCacheForTest();
+});
+
 test.after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
@@ -39,6 +43,24 @@ test('findInLibrary scores keyword hits and returns best match', () => {
   assert.equal(none, null);
 });
 
+test('loadLibraryIndex reuses cache until file mtime changes, then refreshes', async () => {
+  const libDir = path.join(tempRoot, 'library');
+  fs.mkdirSync(libDir, { recursive: true });
+  const file = path.join(libDir, 'index.json');
+  fs.writeFileSync(file, JSON.stringify([{ id: 'a', type: 'image', title: 'first' }]), 'utf8');
+
+  const first = store.loadLibraryIndex();
+  const second = store.loadLibraryIndex();
+  assert.equal(first, second, '未改文件时应复用同一缓存引用');
+
+  // 等待 mtime 变化，再改文件，缓存应刷新。
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  fs.writeFileSync(file, JSON.stringify([{ id: 'b', type: 'image', title: 'second' }]), 'utf8');
+  const third = store.loadLibraryIndex();
+  assert.notEqual(third, second, '文件变更后应刷新缓存');
+  assert.equal(third[0].id, 'b');
+});
+
 test('putCached writes and getCached reads back', () => {
   const entry = store.putCached({
     cacheKey: 'image|ocean|',
@@ -52,6 +74,24 @@ test('putCached writes and getCached reads back', () => {
   const got = store.getCached('image|ocean|');
   assert.equal(got.resolvedUrl, 'https://images.unsplash.com/x.png');
   assert.equal(got.status, 'ok');
+});
+
+test('putCached keeps multiple entries via in-memory merge instead of reloading disk each time', () => {
+  store.putCached({
+    cacheKey: 'image|ocean|',
+    resolvedUrl: 'https://images.unsplash.com/ocean.png',
+    source: 'unsplash',
+    type: 'image',
+  });
+  store.putCached({
+    cacheKey: 'image|sky|',
+    resolvedUrl: 'https://images.unsplash.com/sky.png',
+    source: 'unsplash',
+    type: 'image',
+  });
+  const index = store.loadCacheIndex();
+  assert.equal(index['image|ocean|'].resolvedUrl, 'https://images.unsplash.com/ocean.png');
+  assert.equal(index['image|sky|'].resolvedUrl, 'https://images.unsplash.com/sky.png');
 });
 
 test('loadCacheIndex rebuilds (no throw) on corrupt JSON', () => {

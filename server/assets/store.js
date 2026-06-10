@@ -14,6 +14,12 @@ const LIBRARY_INDEX_FILE = path.join(LIBRARY_DIR, 'index.json');
 const CACHE_DIR = path.join(ASSETS_DIR, 'cache');
 const CACHE_INDEX_FILE = path.join(CACHE_DIR, 'index.json');
 
+// 进程内索引缓存：减少重复读盘，并让 putCached 基于最新内存态合并，避免同进程内丢更新。
+let libraryIndexCache = null;
+let libraryIndexMtimeMs = null;
+let cacheIndexCache = null;
+let cacheIndexMtimeMs = null;
+
 /** 归一化关键词数组：小写、trim、去空、排序，保证乱序得同结果。 */
 function normalizeKeywords(keywords) {
   const list = Array.isArray(keywords) ? keywords : keywords == null ? [] : [keywords];
@@ -63,13 +69,28 @@ function writeJsonAtomic(file, obj) {
   fs.renameSync(tmp, file);
 }
 
+/** 读取文件 mtime；不存在时返回 null。 */
+function getFileMtimeMs(file) {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 读取本地素材库索引（数组）。不存在/损坏返回 []。
  * @returns {Array<object>}
  */
 export function loadLibraryIndex() {
+  const mtimeMs = getFileMtimeMs(LIBRARY_INDEX_FILE);
+  if (libraryIndexCache && libraryIndexMtimeMs === mtimeMs) {
+    return libraryIndexCache;
+  }
   const data = readJsonSafe(LIBRARY_INDEX_FILE, [], 'library/index.json');
-  return Array.isArray(data) ? data : [];
+  libraryIndexCache = Array.isArray(data) ? data : [];
+  libraryIndexMtimeMs = mtimeMs;
+  return libraryIndexCache;
 }
 
 /**
@@ -100,8 +121,14 @@ export function findInLibrary({ type, keywords } = {}) {
  * @returns {Record<string, object>}
  */
 export function loadCacheIndex() {
+  const mtimeMs = getFileMtimeMs(CACHE_INDEX_FILE);
+  if (cacheIndexCache && cacheIndexMtimeMs === mtimeMs) {
+    return cacheIndexCache;
+  }
   const data = readJsonSafe(CACHE_INDEX_FILE, {}, 'cache/index.json');
-  return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  cacheIndexCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  cacheIndexMtimeMs = mtimeMs;
+  return cacheIndexCache;
 }
 
 /**
@@ -137,5 +164,15 @@ export function putCached(entry) {
   };
   index[entry.cacheKey] = merged;
   writeJsonAtomic(CACHE_INDEX_FILE, index);
+  cacheIndexCache = index;
+  cacheIndexMtimeMs = getFileMtimeMs(CACHE_INDEX_FILE);
   return merged;
+}
+
+/** 仅供测试使用：清空进程内索引缓存。 */
+export function __resetStoreCacheForTest() {
+  libraryIndexCache = null;
+  libraryIndexMtimeMs = null;
+  cacheIndexCache = null;
+  cacheIndexMtimeMs = null;
 }
