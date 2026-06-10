@@ -851,3 +851,12 @@ npm run e2e
 - 测试：`server/assets/store.test.js` 新增 `afterEach` 清缓存；新增 2 个回归用例：① 本地库索引在文件未变时复用缓存、文件变更后自动刷新；② 连续 `putCached()` 两条缓存项都会保留，不再依赖每次先重读磁盘态。
 - 验证记录：`server/assets/*.test.js` 共 25/25 通过；`node --test` 全量 97/97 通过；`GetDiagnostics` 无错误。
 - 影响：纯素材模块底层优化，不接入主生成流程、不改变 `resolveAsset()` 的对外返回结构；为后续素材接线降低磁盘 IO 和一致性风险。
+
+### 2026-06-08 第 3.1 步：记忆同步注入 prompt（feature/memory-prompt-injection）
+
+- 目标：按阶段 B 第三步的拆分方案，先只接记忆到 prompt，不碰记忆写回与素材异步解析，保持改动最小并验证 prompt 层整合收益。
+- 改动：`server/intent.js` 新增 `buildMemorySection` 引用，在 `buildMessages()` 的 `contextText` 中把 `memorySection.text` 插入到预设变体段之后、交互描述之前；冷启动时 `buildMemorySection()` 返回空串，仍由 `.filter(Boolean)` 自动忽略，不改变现有 prompt 结构。
+- 设计约束：不改 `buildMessages()` 签名、不引入 async、不影响 telemetry 的 `observe.variant/selectMs` 回填，也不接入素材模块。
+- 测试：`server/intent.variant.test.js` 新增 2 个用例：① 冷启动不注入记忆段；② 先用 `recordInteraction()` 种入画像后，`buildMessages()` 会出现 `【个性化记忆参考】`，同时 `observe` 回填仍正常。
+- 验证记录：`server/intent.variant.test.js` 共 5/5 通过；`node --test` 全量 99/99 通过；`GetDiagnostics` 无错误。
+- 影响：prompt 变长但仅增加同步内存读取，不引入网络阻塞；为下一步“记忆写回”和后续“素材异步解析”提供已落地的 prompt 注入基线。
