@@ -835,3 +835,11 @@ npm run e2e
 - 影响范围：`server/intent.js`、`server/routes.js`。
 - 验证记录：`server/intent.test.js` 新增 2 用例（截断不落地、正常输出不受影响），新增 `server/routes.applyDecision.test.js` 2 用例（navigate 不存在 applied:false、create 冲突去重不覆盖）；`node --test` 全量 94/94 通过；`GetDiagnostics` 无错误；隔离 E2E（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3108`）全绿。
 - 阶段 A（阻断性 bug）至此完成（P0-1/P0-2/P1-1/P1-2/P1-4/P1-5）。P1-3（patch-stay 依赖前端 sync）按决定暂不动，记为待观察。下一步进入阶段 B：素材/记忆模块整合（前置依赖见上节）。
+
+### 2026-06-08 阶段 B 前置：记忆路径统一与启动初始化（feature/memory-init-path）
+
+- 目标：修复整合前置 P2-4。此前 `config.js` 已导出 `MEMORY_FILE`，但 `memoryStore.js` 自行重复拼接 `AIOUX_SNAPSHOTS_DIR` 路径，且 `server/index.js` 启动未显式初始化记忆模块。
+- 改动：`memoryStore.resolveMemoryFile()` 统一返回 `config.MEMORY_FILE`，消除两套路经逻辑；`server/index.js` 在 `initSnapshots()`、`initGraph()` 后调用 `initMemory()`，让服务启动时显式加载记忆单例。
+- 测试：`server/memoryStore.test.js` 新增路径一致性用例，断言 `resolveMemoryFile() === config.MEMORY_FILE` 且指向临时 `AIOUX_SNAPSHOTS_DIR/memory.json`。
+- 验证记录：记忆相关测试 9/9 通过；`node --test` 全量 95/95 通过；`GetDiagnostics` 无错误；隔离启动（临时 `AIOUX_SNAPSHOTS_DIR` + `PORT=3109`）`/api/status` 正常，临时目录已清理。
+- 影响：纯路径/初始化前置，不接入生成主流程、不写记忆内容、不改变 API 响应。

@@ -2,16 +2,12 @@
 // 纯 IO，无业务逻辑。文件损坏时 catch + warn + 返回默认空结构（仿 graph.js）。
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT_DIR } from './config.js';
+import { MEMORY_FILE } from './config.js';
 
 // 解析 memory.json 路径。
-// 为支持测试隔离，运行时根据当前 AIOUX_SNAPSHOTS_DIR 实时计算，
-// 这样测试在 import 后再设环境变量也能命中临时目录。
+// 统一使用 config.MEMORY_FILE，避免记忆模块与配置层出现两套路径逻辑。
 export function resolveMemoryFile() {
-  const dir = process.env.AIOUX_SNAPSHOTS_DIR
-    ? path.resolve(process.env.AIOUX_SNAPSHOTS_DIR)
-    : path.join(ROOT_DIR, 'snapshots');
-  return path.join(dir, 'memory.json');
+  return MEMORY_FILE;
 }
 
 // 默认空记忆结构。

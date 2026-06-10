@@ -8,9 +8,15 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aioux-memory-store-'));
 process.env.AIOUX_SNAPSHOTS_DIR = tempRoot;
 
 const store = await import(`./memoryStore.js?case=${Date.now()}`);
+const config = await import(`./config.js?case=${Date.now()}`);
 
 test.after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
+});
+
+test('memoryStore 使用 config.MEMORY_FILE 作为唯一路径来源', () => {
+  assert.equal(store.resolveMemoryFile(), config.MEMORY_FILE);
+  assert.equal(store.resolveMemoryFile(), path.join(tempRoot, 'memory.json'));
 });
 
 test('冷启动文件不存在返回默认结构', () => {
