@@ -5,10 +5,101 @@ import { chatCompletion } from './stepfun.js';
 import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
+import { resolveAssets } from './assets/index.js';
 import { recordInteraction, recordRevert } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
+
+function buildAssetRequests(interaction, currentNode, traceId = null) {
+  const keywords = [
+    interaction?.text,
+    interaction?.targetLabel,
+    currentNode?.title && currentNode.title !== '主页' ? currentNode.title : '',
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (!keywords.length) return [];
+
+  const lower = keywords.join(' ').toLowerCase();
+  const style = /(真实|写实|照片|摄影|realistic|photo)/.test(lower) ? 'realistic' : undefined;
+  return [{
+    type: 'image',
+    keywords,
+    opts: { traceId, ...(style ? { style } : {}) },
+  }];
+}
+
+function formatAssetContextBlock(assets = []) {
+  const list = Array.isArray(assets) ? assets : [];
+  if (!list.length) return '';
+  const lines = [
+    '【可复用素材参考】',
+    '以下素材已提前解析，可优先直接引用；若 degraded=true，表示当前仅拿到占位兜底，这是待修复 bug，不是正常成功。',
+  ];
+  for (const [idx, asset] of list.entries()) {
+    lines.push(
+      `${idx + 1}. type=${asset?.type || 'unknown'} source=${asset?.source || 'unknown'} degraded=${asset?.degraded === true} fromCache=${asset?.fromCache === true} url=${asset?.url || ''} issueId=${asset?.issueId || 'null'}`
+    );
+  }
+  return lines.join('\n');
+}
+
+function appendTextToUserMessage(messages, extraText) {
+  if (!extraText) return messages;
+  const nextMessages = Array.isArray(messages) ? [...messages] : [];
+  const userIndex = nextMessages.findIndex((message) => message?.role === 'user');
+  if (userIndex < 0) return messages;
+
+  const userMessage = nextMessages[userIndex];
+  const content = Array.isArray(userMessage.content) ? [...userMessage.content] : [];
+  const textIndex = content.findIndex((part) => part?.type === 'text' && typeof part.text === 'string');
+  if (textIndex < 0) return messages;
+
+  const textPart = content[textIndex];
+  content[textIndex] = { ...textPart, text: `${textPart.text}\n\n${extraText}` };
+  nextMessages[userIndex] = { ...userMessage, content };
+  return nextMessages;
+}
+
+export async function buildMessagesWithAssets({
+  interaction,
+  currentNode,
+  graphSummary,
+  observe = null,
+  traceId = null,
+  resolveAssetsImpl = resolveAssets,
+  logger = console,
+} = {}) {
+  const baseMessages = buildMessages(interaction, currentNode, graphSummary, observe);
+  const requests = buildAssetRequests(interaction, currentNode, traceId);
+  if (!requests.length) {
+    return { messages: baseMessages, assets: [], assetTimingMs: 0 };
+  }
+
+  const assetStart = performance.now();
+  try {
+    const assets = await resolveAssetsImpl(requests);
+    const assetTimingMs = Math.round((performance.now() - assetStart) * 1000) / 1000;
+    const assetText = formatAssetContextBlock(assets);
+    return {
+      messages: appendTextToUserMessage(baseMessages, assetText),
+      assets,
+      assetTimingMs,
+    };
+  } catch (err) {
+    const assetTimingMs = Math.round((performance.now() - assetStart) * 1000) / 1000;
+    logger.error('[assets] prompt 注入失败（需修复的 bug，主流程继续）:', err.message);
+    return {
+      messages: baseMessages,
+      assets: [],
+      assetTimingMs,
+      assetError: err.message,
+    };
+  }
+}
 
 // 仅在真正成功应用后把本次交互写入记忆，避免把 no_update / navigate 失败等降级路径污染画像。
 export async function maybeRecordInteractionMemory({ interaction, decision, currentNode, result, variant, traceId }) {
@@ -89,9 +180,17 @@ router.post('/api/interact', async (req, res) => {
   try {
     const messageStart = performance.now();
     const observe = {};
-    const messages = buildMessages(interaction, currentNode, graph.listNodes(), observe);
+    const messageBundle = await buildMessagesWithAssets({
+      interaction,
+      currentNode,
+      graphSummary: graph.listNodes(),
+      observe,
+      traceId,
+    });
+    const messages = messageBundle.messages;
     selectedVariant = observe.variant || null;
     timing.selectMs = observe.selectMs;
+    timing.assetMs = messageBundle.assetTimingMs;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
     raw = await chatCompletion(messages, { response_format: { type: 'json_object' } });

@@ -871,3 +871,14 @@ npm run e2e
 - 测试：新增 `server/routes.memoryWriteback.test.js` 4 个用例：① no_update 不写画像；② navigate 失败降级（`applied:false`）不写画像；③ 真正成功应用后写入画像；④ revert 成功后写入负反馈。
 - 验证记录：`server/routes.memoryWriteback.test.js` 4/4 通过；`node --test` 全量 103/103 通过；`GetDiagnostics` 无错误。
 - 影响：记忆模块首次进入运行时主链路，但仍不涉及素材解析和 prompt async 化；下一步可进入素材异步解析接线（第 3.3 步）。
+
+### 2026-06-12 第 3.3 步：素材异步注入 prompt（feature/asset-async-integration）
+
+- 目标：在不把 `buildMessages()` 改成 async 的前提下，把素材模块接入模型调用前的 prompt 组装链路，为模型提供“已预解析素材参考”。
+- 改动：`server/routes.js` 新增 `buildMessagesWithAssets(...)`，由路由层先调用现有同步 `buildMessages(...)` 生成基础 messages，再异步调用 `resolveAssets(...)`，把返回的素材结果格式化为 `【可复用素材参考】` 文本块并追加到 user text content 末尾。
+- 请求提取策略：当前先走最小实现，仅根据 `interaction.text`、`interaction.targetLabel`、`currentNode.title` 提取最多 3 个关键词，默认解析 1 条 `image` 请求；若命中“真实/写实/photo/realistic”等词，则给素材模块透传 `style=realistic`。
+- 失败语义：若素材解析抛错，`buildMessagesWithAssets(...)` 会显式记录 `console.error('[assets] prompt 注入失败（需修复的 bug，主流程继续）')`，并回退到不带素材块的原始 prompt；不把失败伪装成“已成功注入素材”。
+- 埋点：`/api/interact` 新增 `timing.assetMs`，用于区分素材解析耗时与纯 prompt 拼装耗时，便于后续识别慢路径。
+- 测试：新增 `server/routes.assetPrompt.test.js` 2 个用例：① 资产解析成功后把素材上下文追加到 prompt，且保留 `observe.variant` 回填；② 资产解析失败时保留原始 prompt，并显式返回错误信息供上层记录。
+- 验证记录：聚焦测试 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 共 11/11 通过；全量 `node --test` 105/105 通过；`GetDiagnostics` 无错误。
+- 影响：素材模块首次进入主链路，但 async 仍被限制在 `routes.js`，未破坏 `intent.js` 的同步接口；当前仅注入“素材参考”，尚未把最终使用到的素材回写进 memory 的 `assets` 索引，后续可作为下一小步继续补齐。
