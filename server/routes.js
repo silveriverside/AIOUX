@@ -5,9 +5,25 @@ import { chatCompletion } from './stepfun.js';
 import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
+import { recordInteraction, recordRevert } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
+
+// 仅在真正成功应用后把本次交互写入记忆，避免把 no_update / navigate 失败等降级路径污染画像。
+export async function maybeRecordInteractionMemory({ interaction, decision, currentNode, result, variant, traceId }) {
+  if (!decision || decision.shouldUpdate === false) return false;
+  if (result?.applied === false) return false;
+  await recordInteraction({ interaction, decision, currentNode, variant, traceId });
+  return true;
+}
+
+// 记录回退负反馈；由调用方决定 nodeId/variantId。
+export async function recordRevertMemory({ nodeId, variantId = null, traceId = null } = {}) {
+  if (!nodeId) return false;
+  await recordRevert({ nodeId, variantId, traceId });
+  return true;
+}
 
 // 健康/配置状态
 router.get('/api/status', (req, res) => {
@@ -104,6 +120,18 @@ router.post('/api/interact', async (req, res) => {
     const applyStart = performance.now();
     const result = await applyDecision(decision, currentNode, timing);
     timing.applyMs = Math.round(performance.now() - applyStart);
+    try {
+      await maybeRecordInteractionMemory({
+        interaction,
+        decision,
+        currentNode,
+        result,
+        variant: selectedVariant,
+        traceId,
+      });
+    } catch (err) {
+      console.error('[memory] interact 写回失败（需修复的 bug，主流程继续）:', err.message);
+    }
     finishTiming();
     logTiming(decision, true, result.snapshot?.mode === 'async' ? 'snapshot=async' : '');
     res.json({
@@ -274,10 +302,16 @@ router.get('/api/history/:nodeId', async (req, res) => {
 // 回退节点到指定版本
 router.post('/api/revert', async (req, res) => {
   const { nodeId, fullHash } = req.body || {};
+  const traceId = req.body?.traceId || `revert_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   if (!graph.hasNode(nodeId)) return res.status(404).json({ error: '节点不存在' });
   try {
     const { html } = await snap.revertNode(nodeId, fullHash);
     graph.setCurrent(nodeId);
+    try {
+      await recordRevertMemory({ nodeId, traceId });
+    } catch (err) {
+      console.error('[memory] revert 写回失败（需修复的 bug，主流程继续）:', err.message);
+    }
     res.json({ nodeId, html, breadcrumb: graph.getBreadcrumb(nodeId) });
   } catch (err) {
     res.status(500).json({ error: err.message });

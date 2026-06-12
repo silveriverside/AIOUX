@@ -860,3 +860,14 @@ npm run e2e
 - 测试：`server/intent.variant.test.js` 新增 2 个用例：① 冷启动不注入记忆段；② 先用 `recordInteraction()` 种入画像后，`buildMessages()` 会出现 `【个性化记忆参考】`，同时 `observe` 回填仍正常。
 - 验证记录：`server/intent.variant.test.js` 共 5/5 通过；`node --test` 全量 99/99 通过；`GetDiagnostics` 无错误。
 - 影响：prompt 变长但仅增加同步内存读取，不引入网络阻塞；为下一步“记忆写回”和后续“素材异步解析”提供已落地的 prompt 注入基线。
+
+### 2026-06-08 第 3.2 步：记忆写回（feature/memory-writeback）
+
+- 目标：在真正成功应用后把本次交互写入记忆画像，并在 revert 成功后写入负反馈；继续不接入素材模块。
+- 改动：`server/routes.js` 引入 `recordInteraction` / `recordRevert`，新增两个可测试 helper：
+  - `maybeRecordInteractionMemory(...)`：仅当 `decision.shouldUpdate !== false` 且 `result.applied !== false` 时调用 `recordInteraction(...)`，避免把 no_update 或 navigate 失败降级路径污染画像。
+  - `recordRevertMemory(...)`：在 revert 成功后调用 `recordRevert(...)`，记录页面 `revertCount` 与 `variantReverts`。
+- 接线路径：`/api/interact` 的 `applyDecision` 成功后、响应返回前尝试写回；`/api/revert` 成功后尝试写回负反馈。若写回失败，服务端显式 `console.error` 标记为“需修复的 bug”，但主流程继续返回已应用结果。
+- 测试：新增 `server/routes.memoryWriteback.test.js` 4 个用例：① no_update 不写画像；② navigate 失败降级（`applied:false`）不写画像；③ 真正成功应用后写入画像；④ revert 成功后写入负反馈。
+- 验证记录：`server/routes.memoryWriteback.test.js` 4/4 通过；`node --test` 全量 103/103 通过；`GetDiagnostics` 无错误。
+- 影响：记忆模块首次进入运行时主链路，但仍不涉及素材解析和 prompt async 化；下一步可进入素材异步解析接线（第 3.3 步）。
