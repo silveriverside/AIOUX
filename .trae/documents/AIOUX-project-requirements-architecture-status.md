@@ -882,3 +882,13 @@ npm run e2e
 - 测试：新增 `server/routes.assetPrompt.test.js` 2 个用例：① 资产解析成功后把素材上下文追加到 prompt，且保留 `observe.variant` 回填；② 资产解析失败时保留原始 prompt，并显式返回错误信息供上层记录。
 - 验证记录：聚焦测试 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 共 11/11 通过；全量 `node --test` 105/105 通过；`GetDiagnostics` 无错误。
 - 影响：素材模块首次进入主链路，但 async 仍被限制在 `routes.js`，未破坏 `intent.js` 的同步接口；当前仅注入“素材参考”，尚未把最终使用到的素材回写进 memory 的 `assets` 索引，后续可作为下一小步继续补齐。
+
+### 2026-06-12 第 3.4 步：素材使用写回 memory.assets（feature/asset-memory-writeback）
+
+- 目标：把 `Step 3.3` 中已解析的素材参考，在真正成功应用后写回 `memory.assets` 索引，形成“记忆读取 → 素材解析 → 成功后素材记忆回写”的最小闭环。
+- 改动：`server/routes.js` 新增 `maybeRecordAssetMemory(...)`，仅当 `decision.shouldUpdate !== false` 且 `result.applied !== false` 时才调用 `recordAssetUsage(...)`；节点优先取 `result.nodeId`，回退到 `decision.nodeId`；仅透传带 `url` 的素材项。
+- 接线路径：`/api/interact` 在 `applyDecision(...)` 成功后，先执行既有 `maybeRecordInteractionMemory(...)`，再尝试执行 `maybeRecordAssetMemory(...)`；若素材写回失败，显式 `console.error('[memory] asset 写回失败（需修复的 bug，主流程继续）')`，主流程继续返回。
+- 当前语义边界：写回的是“本次已解析并提供给模型参考的素材”，不是从最终 HTML 中反向提取出的完整实际引用清单；非法 URL 仍交由 `memory.recordAssetUsage(...)` 统一判定并记录 `asset_rejected` 事件。
+- 测试：扩展 `server/routes.memoryWriteback.test.js` 到 7 个用例，新增 3 条素材相关覆盖：① 真正成功应用后写入素材索引；② `no_update` 不写入素材索引；③ 非法素材 URL 不入索引，但会记录 `asset_rejected` 事件。
+- 验证记录：`server/routes.memoryWriteback.test.js` 7/7 通过；后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：素材模块与记忆模块首次形成运行时闭环，但写回粒度仍是“解析参考级别”；若后续要精确记录最终页面真实引用素材，需要另行设计从 `decision.html` 或 `/api/sync` 最终 HTML 提取资产的更严格方案。

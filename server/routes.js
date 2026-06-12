@@ -6,7 +6,7 @@ import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
-import { recordInteraction, recordRevert } from './memory.js';
+import { recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
@@ -109,6 +109,17 @@ export async function maybeRecordInteractionMemory({ interaction, decision, curr
   return true;
 }
 
+// 仅在真正成功应用后把本次素材参考写入记忆索引，失败/不更新路径不污染 assets 画像。
+export async function maybeRecordAssetMemory({ decision, result, assets = [] } = {}) {
+  if (!decision || decision.shouldUpdate === false) return false;
+  if (result?.applied === false) return false;
+  const nodeId = result?.nodeId || decision?.nodeId;
+  const validAssets = (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url);
+  if (!nodeId || !validAssets.length) return false;
+  await recordAssetUsage({ nodeId, assets: validAssets });
+  return true;
+}
+
 // 记录回退负反馈；由调用方决定 nodeId/variantId。
 export async function recordRevertMemory({ nodeId, variantId = null, traceId = null } = {}) {
   if (!nodeId) return false;
@@ -177,6 +188,7 @@ router.post('/api/interact', async (req, res) => {
   timing.contextMs = Math.round(performance.now() - contextStart);
 
   let raw;
+  let resolvedAssets = [];
   try {
     const messageStart = performance.now();
     const observe = {};
@@ -188,6 +200,7 @@ router.post('/api/interact', async (req, res) => {
       traceId,
     });
     const messages = messageBundle.messages;
+    resolvedAssets = messageBundle.assets || [];
     selectedVariant = observe.variant || null;
     timing.selectMs = observe.selectMs;
     timing.assetMs = messageBundle.assetTimingMs;
@@ -230,6 +243,15 @@ router.post('/api/interact', async (req, res) => {
       });
     } catch (err) {
       console.error('[memory] interact 写回失败（需修复的 bug，主流程继续）:', err.message);
+    }
+    try {
+      await maybeRecordAssetMemory({
+        decision,
+        result,
+        assets: resolvedAssets,
+      });
+    } catch (err) {
+      console.error('[memory] asset 写回失败（需修复的 bug，主流程继续）:', err.message);
     }
     finishTiming();
     logTiming(decision, true, result.snapshot?.mode === 'async' ? 'snapshot=async' : '');

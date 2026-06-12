@@ -11,6 +11,7 @@ process.env.AIOUX_SNAPSHOTS_DIR = tempRoot;
 const memory = await import('./memory.js');
 const {
   maybeRecordInteractionMemory,
+  maybeRecordAssetMemory,
   recordRevertMemory,
 } = await import('./routes.js');
 
@@ -84,4 +85,43 @@ test('revert 成功后写入负反馈', async () => {
   assert.equal(page.revertCount, 1);
   const snap = memory.getMemorySnapshot();
   assert.equal(snap.preferences.variantReverts['card_browser__editorial_grid'], 1);
+});
+
+test('真正成功应用后写入素材索引', async () => {
+  const wrote = await maybeRecordAssetMemory({
+    decision: { shouldUpdate: true, action: 'create', nodeId: 'ocean_page' },
+    result: { nodeId: 'ocean_page' },
+    assets: [
+      { url: 'https://images.unsplash.com/ocean-1.jpg', type: 'image' },
+    ],
+  });
+  assert.equal(wrote, true);
+  const assets = memory.listAssetsByNode('ocean_page');
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0].url, 'https://images.unsplash.com/ocean-1.jpg');
+});
+
+test('no_update 不写入素材索引', async () => {
+  const wrote = await maybeRecordAssetMemory({
+    decision: { shouldUpdate: false, action: 'stay', nodeId: 'quiet_page' },
+    result: { applied: false, nodeId: 'quiet_page' },
+    assets: [
+      { url: 'https://images.unsplash.com/quiet.jpg', type: 'image' },
+    ],
+  });
+  assert.equal(wrote, false);
+  assert.equal(memory.listAssetsByNode('quiet_page').length, 0);
+});
+
+test('非法素材 URL 不入索引，但会记录 asset_rejected 事件', async () => {
+  await maybeRecordAssetMemory({
+    decision: { shouldUpdate: true, action: 'create', nodeId: 'bad_asset_page' },
+    result: { nodeId: 'bad_asset_page' },
+    assets: [
+      { url: 'https://evil.example.com/bad.js', type: 'script' },
+    ],
+  });
+  assert.equal(memory.listAssetsByNode('bad_asset_page').length, 0);
+  const snap = memory.getMemorySnapshot();
+  assert.ok(snap.events.some((e) => e.type === 'asset_rejected' && e.nodeId === 'bad_asset_page'));
 });
