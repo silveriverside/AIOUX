@@ -913,3 +913,13 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，新增“当前节点历史素材会作为复用参考注入 prompt”用例，使用注入的 `listReusableAssetsImpl` 避免污染真实记忆文件。
 - 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：本步只做当前节点素材复用，不做相似节点召回、不做跨页排序；相似页素材召回可作为下一小步单独实现。
+
+### 2026-06-13 第 3.7 步：相似节点历史素材复用注入 prompt（feature/reuse-related-page-assets）
+
+- 目标：在当前节点素材复用基础上，补充相似页面曾实际引用过的素材，提升跨页面视觉连续性与素材复用率。
+- 改动：`server/routes.js` 新增 `collectReusableAssets(...)`，先收集当前节点 `listAssetsByNode(currentNode.nodeId)`，再通过 `findRelatedPages(interaction,{limit:2})` 找相关页面并补充其素材；按 URL 去重，总数最多 5 条。
+- prompt 语义：`【历史素材复用参考】` 中每条素材增加 `scope=current|related` 与 `nodeId`，让模型知道素材来自当前页还是相关页；用户明确要求换风格时仍以用户诉求为准。
+- 失败语义：复用素材召回仍包在原有 try/catch 中；读取失败显式记录为需修复 bug，主流程继续但不伪装成功复用。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，新增“相关页面历史素材会作为复用参考注入 prompt，并与当前节点素材去重”用例，通过注入 `findRelatedPagesImpl` 和 `listReusableAssetsImpl` 保持测试可控。
+- 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：本步仍不做复杂排序或全局素材检索，只按 memory 现有相似页能力召回前 2 个相关页面，降低 prompt 体积和策略风险。
