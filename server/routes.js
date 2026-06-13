@@ -62,30 +62,42 @@ function formatReusableAssetContextBlock(assets = []) {
   return lines.join('\n');
 }
 
+function isReusableAssetCandidate(asset) {
+  return /^https?:\/\//i.test(String(asset?.url || '').trim());
+}
+
+function rankReusableAssets(assets = []) {
+  const scopeRank = { current: 0, related: 1 };
+  return (Array.isArray(assets) ? assets : [])
+    .filter(isReusableAssetCandidate)
+    .sort((a, b) => (
+      (scopeRank[a.scope] ?? 9) - (scopeRank[b.scope] ?? 9)
+      || (b.useCount || 0) - (a.useCount || 0)
+      || String(a.url).localeCompare(String(b.url))
+    ));
+}
+
 function collectReusableAssets({ interaction, currentNode, listReusableAssetsImpl, findRelatedPagesImpl }) {
   const seen = new Set();
   const collected = [];
   const addAssets = (nodeId, scope, assets = []) => {
     for (const asset of Array.isArray(assets) ? assets : []) {
-      if (!asset?.url || seen.has(asset.url)) continue;
+      if (!isReusableAssetCandidate(asset) || seen.has(asset.url)) continue;
       seen.add(asset.url);
       collected.push({ ...asset, nodeId, scope });
-      if (collected.length >= 5) return;
     }
   };
 
   const currentId = currentNode?.nodeId;
   if (currentId) addAssets(currentId, 'current', listReusableAssetsImpl(currentId));
-  if (collected.length >= 5) return collected;
 
   const relatedPages = findRelatedPagesImpl(interaction, { limit: 2 });
   for (const page of Array.isArray(relatedPages) ? relatedPages : []) {
     const nodeId = page?.nodeId;
     if (!nodeId || nodeId === currentId) continue;
     addAssets(nodeId, 'related', listReusableAssetsImpl(nodeId));
-    if (collected.length >= 5) break;
   }
-  return collected;
+  return rankReusableAssets(collected).slice(0, 5);
 }
 
 function appendTextToUserMessage(messages, extraText) {
