@@ -6,7 +6,7 @@ import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
-import { recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
+import { listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
@@ -42,6 +42,21 @@ function formatAssetContextBlock(assets = []) {
   for (const [idx, asset] of list.entries()) {
     lines.push(
       `${idx + 1}. type=${asset?.type || 'unknown'} source=${asset?.source || 'unknown'} degraded=${asset?.degraded === true} fromCache=${asset?.fromCache === true} url=${asset?.url || ''} issueId=${asset?.issueId || 'null'}`
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatReusableAssetContextBlock(assets = []) {
+  const list = (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url).slice(0, 3);
+  if (!list.length) return '';
+  const lines = [
+    '【历史素材复用参考】',
+    '以下素材来自当前节点曾经实际引用过的 HTML，可优先复用以保持视觉连续；若用户要求换风格，以用户诉求为准。',
+  ];
+  for (const [idx, asset] of list.entries()) {
+    lines.push(
+      `${idx + 1}. type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} url=${asset.url}`
     );
   }
   return lines.join('\n');
@@ -103,12 +118,26 @@ export async function buildMessagesWithAssets({
   observe = null,
   traceId = null,
   resolveAssetsImpl = resolveAssets,
+  listReusableAssetsImpl = listAssetsByNode,
   logger = console,
 } = {}) {
   const baseMessages = buildMessages(interaction, currentNode, graphSummary, observe);
+  let reusableAssets = [];
+  try {
+    reusableAssets = currentNode?.nodeId ? listReusableAssetsImpl(currentNode.nodeId) : [];
+  } catch (err) {
+    logger.error('[assets] 历史素材读取失败（需修复的 bug，主流程继续）:', err.message);
+    reusableAssets = [];
+  }
   const requests = buildAssetRequests(interaction, currentNode, traceId);
+  const reusableText = formatReusableAssetContextBlock(reusableAssets);
   if (!requests.length) {
-    return { messages: baseMessages, assets: [], assetTimingMs: 0 };
+    return {
+      messages: appendTextToUserMessage(baseMessages, reusableText),
+      assets: [],
+      reusedAssets: reusableAssets,
+      assetTimingMs: 0,
+    };
   }
 
   const assetStart = performance.now();
@@ -116,17 +145,20 @@ export async function buildMessagesWithAssets({
     const assets = await resolveAssetsImpl(requests);
     const assetTimingMs = Math.round((performance.now() - assetStart) * 1000) / 1000;
     const assetText = formatAssetContextBlock(assets);
+    const extraText = [reusableText, assetText].filter(Boolean).join('\n\n');
     return {
-      messages: appendTextToUserMessage(baseMessages, assetText),
+      messages: appendTextToUserMessage(baseMessages, extraText),
       assets,
+      reusedAssets: reusableAssets,
       assetTimingMs,
     };
   } catch (err) {
     const assetTimingMs = Math.round((performance.now() - assetStart) * 1000) / 1000;
     logger.error('[assets] prompt 注入失败（需修复的 bug，主流程继续）:', err.message);
     return {
-      messages: baseMessages,
+      messages: appendTextToUserMessage(baseMessages, reusableText),
       assets: [],
+      reusedAssets: reusableAssets,
       assetTimingMs,
       assetError: err.message,
     };

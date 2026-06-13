@@ -903,3 +903,13 @@ npm run e2e
 - 测试：扩展 `server/routes.memoryWriteback.test.js` 到 9 个用例，新增 HTML 提取、只写最终 HTML 引用、`/api/sync` 最终 HTML 写回等覆盖；保留 `no_update`、`applied:false`、非法 URL `asset_rejected` 语义。
 - 验证记录：`server/routes.memoryWriteback.test.js` 9/9 通过；后续补跑聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：素材记忆现在更接近真实页面引用；仍不解析 JS 运行时拼接 URL，也暂不记录相对本地素材路径，后续若需要支持本地素材库引用，可单独扩展提取与白名单规则。
+
+### 2026-06-13 第 3.6 步：当前节点历史素材复用注入 prompt（feature/reuse-current-node-assets）
+
+- 目标：把已写入 `memory.assets` 的当前节点历史素材用于下一次生成前的 prompt，形成“记录 → 复用”的最小素材闭环。
+- 改动：`server/routes.js` 在 `buildMessagesWithAssets(...)` 中新增当前节点素材召回，默认调用 `memory.listAssetsByNode(currentNode.nodeId)`，最多注入 3 条历史素材到 `【历史素材复用参考】` prompt 块。
+- 复用语义：历史素材来自最终 HTML 曾实际引用过的 URL；模型可优先复用以保持视觉连续，但若用户明确要求换风格，仍以用户诉求为准。
+- 失败语义：读取历史素材失败时显式记录 `console.error('[assets] 历史素材读取失败（需修复的 bug，主流程继续）')`，主流程继续，不伪装成成功复用。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，新增“当前节点历史素材会作为复用参考注入 prompt”用例，使用注入的 `listReusableAssetsImpl` 避免污染真实记忆文件。
+- 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：本步只做当前节点素材复用，不做相似节点召回、不做跨页排序；相似页素材召回可作为下一小步单独实现。
