@@ -923,3 +923,13 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，新增“相关页面历史素材会作为复用参考注入 prompt，并与当前节点素材去重”用例，通过注入 `findRelatedPagesImpl` 和 `listReusableAssetsImpl` 保持测试可控。
 - 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：本步仍不做复杂排序或全局素材检索，只按 memory 现有相似页能力召回前 2 个相关页面，降低 prompt 体积和策略风险。
+
+### 2026-06-13 第 3.8 步：素材复用质量过滤与稳定排序（feature/reusable-asset-quality-ranking）
+
+- 目标：避免低质量或异常素材反复进入 prompt，同时让复用素材顺序更稳定、更符合当前页面连续性。
+- 改动：`server/routes.js` 新增 `isReusableAssetCandidate(...)` 与 `rankReusableAssets(...)`；复用素材只保留 `http(s)` 绝对 URL，过滤 `data:` 占位、空 URL 和相对路径。
+- 排序策略：先按 `scope` 排序，`current` 当前节点素材优先于 `related` 相关页面素材；同一 scope 内按 `useCount` 降序；再按 URL 字符串稳定排序，避免同分素材顺序抖动。
+- 召回边界：仍保留总数最多 5 条；当前节点和相关页面素材统一去重后再排序，不扩大到全局素材检索。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，新增“复用素材会过滤低质量候选，并按 current 优先与 useCount 排序”用例，覆盖 `data:` 过滤、空 URL 过滤和排序。
+- 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：减少 prompt 中低价值素材，降低模型复用占位图或异常 URL 的概率；仍不引入复杂质量评分模型，后续可基于真实反馈再加入成功率/回退率等质量因子。
