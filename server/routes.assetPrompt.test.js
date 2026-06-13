@@ -108,3 +108,45 @@ test('当前节点历史素材会作为复用参考注入 prompt', async () => {
   assert.match(userText, /https:\/\/images\.unsplash\.com\/reused-ocean\.jpg/);
   assert.match(userText, /useCount=2/);
 });
+
+test('相关页面历史素材会作为复用参考注入 prompt，并与当前节点素材去重', async () => {
+  const result = await buildMessagesWithAssets({
+    interaction: {
+      type: 'text',
+      text: '继续做海洋沉浸页',
+      targetLabel: '海洋',
+      currentCapabilities: { sceneType: 'immersive_media' },
+    },
+    currentNode: {
+      nodeId: 'ocean_page',
+      title: '海洋页',
+      html: '<main>ocean</main>',
+    },
+    graphSummary: [{ nodeId: 'ocean_page', title: '海洋页', parentId: 'main' }],
+    traceId: 't_related_assets',
+    resolveAssetsImpl: async () => [],
+    listReusableAssetsImpl: (nodeId) => {
+      if (nodeId === 'ocean_page') {
+        return [{ url: 'https://images.unsplash.com/shared.jpg', type: 'image', useCount: 3 }];
+      }
+      if (nodeId === 'reef_page') {
+        return [
+          { url: 'https://images.unsplash.com/shared.jpg', type: 'image', useCount: 1 },
+          { url: 'https://images.unsplash.com/reef.jpg', type: 'image', useCount: 2 },
+        ];
+      }
+      return [];
+    },
+    findRelatedPagesImpl: () => [{ nodeId: 'reef_page', title: '珊瑚礁页' }],
+  });
+
+  assert.equal(result.reusedAssets.length, 2);
+  const urls = result.reusedAssets.map((asset) => asset.url);
+  assert.deepEqual(urls, [
+    'https://images.unsplash.com/shared.jpg',
+    'https://images.unsplash.com/reef.jpg',
+  ]);
+  const userText = result.messages[1].content.find((part) => part.type === 'text')?.text || '';
+  assert.match(userText, /reef_page/);
+  assert.match(userText, /https:\/\/images\.unsplash\.com\/reef\.jpg/);
+});

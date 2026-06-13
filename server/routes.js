@@ -6,7 +6,7 @@ import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
-import { listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
+import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
@@ -56,10 +56,36 @@ function formatReusableAssetContextBlock(assets = []) {
   ];
   for (const [idx, asset] of list.entries()) {
     lines.push(
-      `${idx + 1}. type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} url=${asset.url}`
+      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} url=${asset.url}`
     );
   }
   return lines.join('\n');
+}
+
+function collectReusableAssets({ interaction, currentNode, listReusableAssetsImpl, findRelatedPagesImpl }) {
+  const seen = new Set();
+  const collected = [];
+  const addAssets = (nodeId, scope, assets = []) => {
+    for (const asset of Array.isArray(assets) ? assets : []) {
+      if (!asset?.url || seen.has(asset.url)) continue;
+      seen.add(asset.url);
+      collected.push({ ...asset, nodeId, scope });
+      if (collected.length >= 5) return;
+    }
+  };
+
+  const currentId = currentNode?.nodeId;
+  if (currentId) addAssets(currentId, 'current', listReusableAssetsImpl(currentId));
+  if (collected.length >= 5) return collected;
+
+  const relatedPages = findRelatedPagesImpl(interaction, { limit: 2 });
+  for (const page of Array.isArray(relatedPages) ? relatedPages : []) {
+    const nodeId = page?.nodeId;
+    if (!nodeId || nodeId === currentId) continue;
+    addAssets(nodeId, 'related', listReusableAssetsImpl(nodeId));
+    if (collected.length >= 5) break;
+  }
+  return collected;
 }
 
 function appendTextToUserMessage(messages, extraText) {
@@ -119,12 +145,18 @@ export async function buildMessagesWithAssets({
   traceId = null,
   resolveAssetsImpl = resolveAssets,
   listReusableAssetsImpl = listAssetsByNode,
+  findRelatedPagesImpl = findRelatedPages,
   logger = console,
 } = {}) {
   const baseMessages = buildMessages(interaction, currentNode, graphSummary, observe);
   let reusableAssets = [];
   try {
-    reusableAssets = currentNode?.nodeId ? listReusableAssetsImpl(currentNode.nodeId) : [];
+    reusableAssets = collectReusableAssets({
+      interaction,
+      currentNode,
+      listReusableAssetsImpl,
+      findRelatedPagesImpl,
+    });
   } catch (err) {
     logger.error('[assets] 历史素材读取失败（需修复的 bug，主流程继续）:', err.message);
     reusableAssets = [];
