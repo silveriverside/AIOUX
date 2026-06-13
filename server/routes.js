@@ -77,6 +77,15 @@ function rankReusableAssets(assets = []) {
     ));
 }
 
+function summarizeReusableAssets(assets = []) {
+  const list = Array.isArray(assets) ? assets : [];
+  return {
+    total: list.length,
+    current: list.filter((asset) => asset?.scope === 'current').length,
+    related: list.filter((asset) => asset?.scope === 'related').length,
+  };
+}
+
 function collectReusableAssets({ interaction, currentNode, listReusableAssetsImpl, findRelatedPagesImpl }) {
   const seen = new Set();
   const collected = [];
@@ -173,6 +182,7 @@ export async function buildMessagesWithAssets({
     logger.error('[assets] 历史素材读取失败（需修复的 bug，主流程继续）:', err.message);
     reusableAssets = [];
   }
+  const reusedAssetStats = summarizeReusableAssets(reusableAssets);
   const requests = buildAssetRequests(interaction, currentNode, traceId);
   const reusableText = formatReusableAssetContextBlock(reusableAssets);
   if (!requests.length) {
@@ -180,6 +190,7 @@ export async function buildMessagesWithAssets({
       messages: appendTextToUserMessage(baseMessages, reusableText),
       assets: [],
       reusedAssets: reusableAssets,
+      reusedAssetStats,
       assetTimingMs: 0,
     };
   }
@@ -194,6 +205,7 @@ export async function buildMessagesWithAssets({
       messages: appendTextToUserMessage(baseMessages, extraText),
       assets,
       reusedAssets: reusableAssets,
+      reusedAssetStats,
       assetTimingMs,
     };
   } catch (err) {
@@ -203,6 +215,7 @@ export async function buildMessagesWithAssets({
       messages: appendTextToUserMessage(baseMessages, reusableText),
       assets: [],
       reusedAssets: reusableAssets,
+      reusedAssetStats,
       assetTimingMs,
       assetError: err.message,
     };
@@ -312,6 +325,9 @@ router.post('/api/interact', async (req, res) => {
     selectedVariant = observe.variant || null;
     timing.selectMs = observe.selectMs;
     timing.assetMs = messageBundle.assetTimingMs;
+    timing.reusedAssetCount = messageBundle.reusedAssetStats?.total || 0;
+    timing.reusedCurrentAssetCount = messageBundle.reusedAssetStats?.current || 0;
+    timing.reusedRelatedAssetCount = messageBundle.reusedAssetStats?.related || 0;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
     raw = await chatCompletion(messages, { response_format: { type: 'json_object' } });

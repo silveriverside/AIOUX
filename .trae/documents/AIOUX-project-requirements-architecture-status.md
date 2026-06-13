@@ -933,3 +933,12 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，新增“复用素材会过滤低质量候选，并按 current 优先与 useCount 排序”用例，覆盖 `data:` 过滤、空 URL 过滤和排序。
 - 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：减少 prompt 中低价值素材，降低模型复用占位图或异常 URL 的概率；仍不引入复杂质量评分模型，后续可基于真实反馈再加入成功率/回退率等质量因子。
+
+### 2026-06-13 第 3.9 步：素材复用观测字段（feature/reusable-asset-observability）
+
+- 目标：让素材复用是否生效可观测，为后续判断复用收益和调优召回策略提供数据。
+- 改动：`server/routes.js` 新增 `summarizeReusableAssets(...)`，`buildMessagesWithAssets(...)` 返回 `reusedAssetStats={total,current,related}`。
+- 接线路径：`/api/interact` 在构建 messages 后把 `reusedAssetStats` 写入 `timing.reusedAssetCount`、`timing.reusedCurrentAssetCount`、`timing.reusedRelatedAssetCount`。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，在相关页面素材复用用例中断言 `reusedAssetStats` 统计准确。
+- 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：只新增响应 timing 字段，不改变 prompt 内容和素材召回排序；前端不读取也不受影响。
