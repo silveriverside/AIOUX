@@ -64,6 +64,38 @@ function appendTextToUserMessage(messages, extraText) {
   return nextMessages;
 }
 
+function pushHttpAssetUrl(list, seen, url, type = null, order = Number.MAX_SAFE_INTEGER) {
+  const clean = String(url || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
+  seen.add(clean);
+  list.push({ url: clean, type, order });
+}
+
+export function extractAssetReferencesFromHtml(html = '') {
+  if (typeof html !== 'string' || !html) return [];
+  const assets = [];
+  const seen = new Set();
+  const attrRe = /\b(src|href|poster|data-src|data-url)\s*=\s*(["'])(.*?)\2/gi;
+  let match;
+  while ((match = attrRe.exec(html))) {
+    pushHttpAssetUrl(assets, seen, match[3], match[1] === 'href' ? 'link' : null, match.index);
+  }
+
+  const srcsetRe = /\bsrcset\s*=\s*(["'])(.*?)\1/gi;
+  while ((match = srcsetRe.exec(html))) {
+    const candidates = match[2].split(',').map((item) => item.trim().split(/\s+/)[0]);
+    candidates.forEach((candidate, idx) => pushHttpAssetUrl(assets, seen, candidate, null, match.index + idx / 1000));
+  }
+
+  const cssUrlRe = /url\(\s*(["']?)(.*?)\1\s*\)/gi;
+  while ((match = cssUrlRe.exec(html))) {
+    pushHttpAssetUrl(assets, seen, match[2], null, match.index);
+  }
+  return assets
+    .sort((a, b) => a.order - b.order)
+    .map(({ order, ...asset }) => asset);
+}
+
 export async function buildMessagesWithAssets({
   interaction,
   currentNode,
@@ -109,14 +141,14 @@ export async function maybeRecordInteractionMemory({ interaction, decision, curr
   return true;
 }
 
-// 仅在真正成功应用后把本次素材参考写入记忆索引，失败/不更新路径不污染 assets 画像。
-export async function maybeRecordAssetMemory({ decision, result, assets = [] } = {}) {
+// 仅在真正成功应用后把最终 HTML 实际引用的素材写入记忆索引，失败/不更新路径不污染 assets 画像。
+export async function maybeRecordAssetMemory({ decision, result } = {}) {
   if (!decision || decision.shouldUpdate === false) return false;
   if (result?.applied === false) return false;
   const nodeId = result?.nodeId || decision?.nodeId;
-  const validAssets = (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url);
-  if (!nodeId || !validAssets.length) return false;
-  await recordAssetUsage({ nodeId, assets: validAssets });
+  const htmlAssets = extractAssetReferencesFromHtml(result?.html || decision?.html || '');
+  if (!nodeId || !htmlAssets.length) return false;
+  await recordAssetUsage({ nodeId, assets: htmlAssets });
   return true;
 }
 
@@ -360,7 +392,7 @@ router.get('/api/snapshot-jobs/:jobId', (req, res) => {
 });
 
 // 前端在增量渲染后回传最终 HTML，持久化为该节点版本
-router.post('/api/sync', (req, res) => {
+router.post('/api/sync', async (req, res) => {
   const requestStart = performance.now();
   const timing = {};
   const { nodeId, html } = req.body || {};
@@ -384,6 +416,14 @@ router.post('/api/sync', (req, res) => {
     snapshotJob.promise.catch(() => {
       // 后台队列内部已记录错误；这里避免未处理 Promise 影响进程。
     });
+    try {
+      await maybeRecordAssetMemory({
+        decision: { shouldUpdate: true, nodeId },
+        result: { nodeId, html },
+      });
+    } catch (err) {
+      console.error('[memory] sync asset 写回失败（需修复的 bug，主流程继续）:', err.message);
+    }
     finishTiming();
     console.log('[timing]', JSON.stringify({ event: 'sync', traceId, nodeId, timing }));
     res.json({

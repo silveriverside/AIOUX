@@ -892,3 +892,14 @@ npm run e2e
 - 测试：扩展 `server/routes.memoryWriteback.test.js` 到 7 个用例，新增 3 条素材相关覆盖：① 真正成功应用后写入素材索引；② `no_update` 不写入素材索引；③ 非法素材 URL 不入索引，但会记录 `asset_rejected` 事件。
 - 验证记录：`server/routes.memoryWriteback.test.js` 7/7 通过；后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：素材模块与记忆模块首次形成运行时闭环，但写回粒度仍是“解析参考级别”；若后续要精确记录最终页面真实引用素材，需要另行设计从 `decision.html` 或 `/api/sync` 最终 HTML 提取资产的更严格方案。
+
+### 2026-06-12 第 3.5 步：最终 HTML 实际引用素材写回（feature/actual-html-asset-memory）
+
+- 目标：把素材记忆从“解析参考级别”升级为“最终 HTML 实际引用级别”，只记录最终落地 HTML 中真实出现的素材 URL。
+- 改动：`server/routes.js` 新增 `extractAssetReferencesFromHtml(html)`，从 `src`、`href`、`poster`、`data-src`、`data-url`、`srcset` 与 CSS `url(...)` 中提取 `http(s)` 绝对 URL；忽略 `data:`、锚点和相对路径，避免占位图或本地相对路径污染素材记忆。
+- 写回语义：`maybeRecordAssetMemory(...)` 不再记录 `messageBundle.assets` 中的推荐素材，而是从 `result.html` / `decision.html` 提取最终 HTML 实际引用；若 HTML 中没有候选 URL，则不写入。
+- 接线路径：`/api/interact` 成功应用后继续调用 `maybeRecordAssetMemory(...)`，此时使用 `result.html`；`/api/sync` 改为 async 路由，在前端回传最终 HTML 并成功入队快照后，同样调用 `maybeRecordAssetMemory(...)` 写入最终 HTML 资产。
+- 失败语义：`/api/sync` 素材写回失败时显式记录 `console.error('[memory] sync asset 写回失败（需修复的 bug，主流程继续）')`，不伪装成功、不阻断已成功的 sync 主流程。
+- 测试：扩展 `server/routes.memoryWriteback.test.js` 到 9 个用例，新增 HTML 提取、只写最终 HTML 引用、`/api/sync` 最终 HTML 写回等覆盖；保留 `no_update`、`applied:false`、非法 URL `asset_rejected` 语义。
+- 验证记录：`server/routes.memoryWriteback.test.js` 9/9 通过；后续补跑聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
+- 影响：素材记忆现在更接近真实页面引用；仍不解析 JS 运行时拼接 URL，也暂不记录相对本地素材路径，后续若需要支持本地素材库引用，可单独扩展提取与白名单规则。
