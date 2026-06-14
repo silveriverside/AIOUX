@@ -86,6 +86,35 @@ function summarizeReusableAssets(assets = []) {
   };
 }
 
+export function buildInteractTimingPayload({
+  traceId,
+  interaction,
+  selectedVariant = null,
+  decision = null,
+  applied = false,
+  timing = {},
+  extra = '',
+} = {}) {
+  return {
+    event: 'interact',
+    traceId,
+    type: interaction?.type || 'unknown',
+    intentHint: interaction?.intentHint || '',
+    sceneType: interaction?.currentCapabilities?.sceneType || 'generic',
+    variantId: selectedVariant?.id || 'none',
+    variantReason: selectedVariant?.reason || 'none',
+    action: decision?.action || 'n/a',
+    mode: decision?.mode || 'n/a',
+    nodeId: decision?.nodeId || 'n/a',
+    applied,
+    reusedAssetCount: timing.reusedAssetCount ?? 0,
+    reusedCurrentAssetCount: timing.reusedCurrentAssetCount ?? 0,
+    reusedRelatedAssetCount: timing.reusedRelatedAssetCount ?? 0,
+    timing,
+    extra,
+  };
+}
+
 function collectReusableAssets({ interaction, currentNode, listReusableAssetsImpl, findRelatedPagesImpl }) {
   const seen = new Set();
   const collected = [];
@@ -274,21 +303,15 @@ router.post('/api/interact', async (req, res) => {
     return timing;
   };
   const logTiming = (decision, applied, extra = '') => {
-    console.log('[timing]', JSON.stringify({
-      event: 'interact',
+    console.log('[timing]', JSON.stringify(buildInteractTimingPayload({
       traceId,
-      type: interaction?.type || 'unknown',
-      intentHint: interaction?.intentHint || '',
-      sceneType: interaction?.currentCapabilities?.sceneType || 'generic',
-      variantId: selectedVariant?.id || 'none',
-      variantReason: selectedVariant?.reason || 'none',
-      action: decision?.action || 'n/a',
-      mode: decision?.mode || 'n/a',
-      nodeId: decision?.nodeId || 'n/a',
+      interaction,
+      selectedVariant,
+      decision,
       applied,
       timing,
       extra,
-    }));
+    })));
   };
   // 本次交互选中的预设变体（可观测），由 buildMessages 通过 observe 回填。
   let selectedVariant = null;

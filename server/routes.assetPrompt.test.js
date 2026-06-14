@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { buildMessagesWithAssets } = await import('./routes.js');
+const { buildInteractTimingPayload, buildMessagesWithAssets } = await import('./routes.js');
 
 test('资产解析成功后会把素材上下文追加到 prompt，且保留现有 observe 回填', async () => {
   const observe = {};
@@ -198,4 +198,31 @@ test('复用素材会过滤低质量候选，并按 current 优先与 useCount �
   const userText = result.messages[1].content.find((part) => part.type === 'text')?.text || '';
   assert.doesNotMatch(userText, /data:image/);
   assert.doesNotMatch(userText, /placeholder/);
+});
+
+test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
+  const payload = buildInteractTimingPayload({
+    traceId: 't_log_assets',
+    interaction: {
+      type: 'text',
+      intentHint: 'refine_current',
+      currentCapabilities: { sceneType: 'immersive_media' },
+    },
+    selectedVariant: { id: 'immersive-a', reason: 'scene-match' },
+    decision: { action: 'stay', mode: 'full', nodeId: 'ocean_page' },
+    applied: true,
+    timing: {
+      totalMs: 1200,
+      reusedAssetCount: 3,
+      reusedCurrentAssetCount: 1,
+      reusedRelatedAssetCount: 2,
+    },
+    extra: 'snapshot=async',
+  });
+
+  assert.equal(payload.event, 'interact');
+  assert.equal(payload.reusedAssetCount, 3);
+  assert.equal(payload.reusedCurrentAssetCount, 1);
+  assert.equal(payload.reusedRelatedAssetCount, 2);
+  assert.equal(payload.timing.reusedAssetCount, 3);
 });

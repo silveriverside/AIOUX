@@ -942,3 +942,13 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，在相关页面素材复用用例中断言 `reusedAssetStats` 统计准确。
 - 验证记录：后续补跑 `server/routes.assetPrompt.test.js`、`server/intent.variant.test.js`、`server/routes.memoryWriteback.test.js` 聚焦链路和全量 `node --test`；`GetDiagnostics` 无错误。
 - 影响：只新增响应 timing 字段，不改变 prompt 内容和素材召回排序；前端不读取也不受影响。
+
+### 2026-06-13 第 3.10 步：素材复用统计进入结构化 timing 日志摘要（feature/reusable-asset-log-summary）
+
+- 目标：让服务端 `[timing]` 结构化日志可直接按顶层字段检索素材复用命中情况，减少日志聚合时解析嵌套 `timing` 对象的成本。
+- 改动：`server/routes.js` 新增 `buildInteractTimingPayload(...)`，并让 `/api/interact` 的 `logTiming(...)` 复用该 helper 构造日志 payload。
+- 日志字段：`reusedAssetCount`、`reusedCurrentAssetCount`、`reusedRelatedAssetCount` 同时保留在顶层摘要和原有 `timing` 对象中。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，先确认缺少 `buildInteractTimingPayload(...)` 时红灯失败，再断言顶层素材复用统计与嵌套 timing 统计一致。
+- 测试稳定性：全量验证时发现 `server/routes.applyDecision.test.js` 依赖固定 300ms 等待后台 snapshot job，偶发在第二个 job 完成前清理临时目录；已改为等待具体 `snapshot.jobId` 进入 `done/failed` 后再结束测试。
+- 验证记录：`server/routes.assetPrompt.test.js` 6/6 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 22/22 通过；全量 `node --test` 114/114 通过；`GetDiagnostics` 无错误。
+- 影响：只改变服务端结构化日志内容，不改变 API 响应、不改变 prompt、不改变素材召回和排序逻辑。
