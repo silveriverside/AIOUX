@@ -117,6 +117,7 @@ export function buildInteractTimingPayload({
     reusedPromptAssetCount: timing.reusedPromptAssetCount ?? 0,
     reusedPromptCurrentAssetCount: timing.reusedPromptCurrentAssetCount ?? 0,
     reusedPromptRelatedAssetCount: timing.reusedPromptRelatedAssetCount ?? 0,
+    reusedPromptSkippedAssetCount: timing.reusedPromptSkippedAssetCount ?? 0,
     timing,
     extra,
   };
@@ -221,6 +222,7 @@ export async function buildMessagesWithAssets({
   const reusedAssetStats = summarizeReusableAssets(reusableAssets);
   const reusablePromptAssets = selectReusableAssetsForPrompt(reusableAssets);
   const reusedPromptAssetStats = summarizeReusableAssets(reusablePromptAssets);
+  const reusedPromptSkippedAssetCount = Math.max(0, reusedAssetStats.total - reusedPromptAssetStats.total);
   const requests = buildAssetRequests(interaction, currentNode, traceId);
   const reusableText = formatReusableAssetContextBlock(reusablePromptAssets);
   if (!requests.length) {
@@ -230,6 +232,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptSkippedAssetCount,
       assetTimingMs: 0,
     };
   }
@@ -246,6 +249,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptSkippedAssetCount,
       assetTimingMs,
     };
   } catch (err) {
@@ -257,6 +261,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptSkippedAssetCount,
       assetTimingMs,
       assetError: err.message,
     };
@@ -366,6 +371,7 @@ router.post('/api/interact', async (req, res) => {
     timing.reusedPromptAssetCount = messageBundle.reusedPromptAssetStats?.total || 0;
     timing.reusedPromptCurrentAssetCount = messageBundle.reusedPromptAssetStats?.current || 0;
     timing.reusedPromptRelatedAssetCount = messageBundle.reusedPromptAssetStats?.related || 0;
+    timing.reusedPromptSkippedAssetCount = messageBundle.reusedPromptSkippedAssetCount || 0;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
     raw = await chatCompletion(messages, { response_format: { type: 'json_object' } });
