@@ -243,6 +243,7 @@ test('复用素材统计会区分召回数量与实际注入 prompt 数量', asy
     current: 2,
     related: 1,
   });
+  assert.equal(result.reusedPromptAssetLimit, 3);
   assert.equal(result.reusedPromptSkippedAssetCount, 1);
   const userText = result.messages[1].content.find((part) => part.type === 'text')?.text || '';
   assert.match(userText, /current-a\.jpg/);
@@ -269,6 +270,7 @@ test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
       reusedPromptAssetCount: 2,
       reusedPromptCurrentAssetCount: 1,
       reusedPromptRelatedAssetCount: 1,
+      reusedPromptAssetLimit: 3,
       reusedPromptSkippedAssetCount: 1,
     },
     extra: 'snapshot=async',
@@ -281,8 +283,10 @@ test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
   assert.equal(payload.reusedPromptAssetCount, 2);
   assert.equal(payload.reusedPromptCurrentAssetCount, 1);
   assert.equal(payload.reusedPromptRelatedAssetCount, 1);
+  assert.equal(payload.reusedPromptAssetLimit, 3);
   assert.equal(payload.reusedPromptSkippedAssetCount, 1);
   assert.equal(payload.timing.reusedAssetCount, 3);
   assert.equal(payload.timing.reusedPromptAssetCount, 2);
+  assert.equal(payload.timing.reusedPromptAssetLimit, 3);
   assert.equal(payload.timing.reusedPromptSkippedAssetCount, 1);
 });
