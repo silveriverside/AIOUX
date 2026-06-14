@@ -24,6 +24,18 @@ test.after(async () => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
+async function waitForSnapshotJob(jobId, timeoutMs = 3000) {
+  if (!jobId) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = snap.getSnapshotJob(jobId);
+    if (job?.status === 'done') return;
+    if (job?.status === 'failed') throw new Error(`snapshot job failed: ${job.error}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`snapshot job timeout: ${jobId}`);
+}
+
 const main = { nodeId: 'main', title: '主页', html: '' };
 
 test('P1-4: navigate 到不存在的节点返回 applied:false 且不跳转', () => {
@@ -37,9 +49,9 @@ test('P1-4: navigate 到不存在的节点返回 applied:false 且不跳转', ()
   assert.equal(graph.getCurrent(), before, 'current 不应被改变');
 });
 
-test('P1-2: create 命中已存在 nodeId 时去重，不覆盖既有节点', () => {
+test('P1-2: create 命中已存在 nodeId 时去重，不覆盖既有节点', async () => {
   // 先创建一个节点。
-  applyDecision(
+  const first = applyDecision(
     { action: 'create', nodeId: 'dup_page', parentId: 'main', title: '原始页', intent: '首次创建', mode: 'full', html: '<div>v1</div>', patches: [] },
     main
   );
@@ -53,4 +65,6 @@ test('P1-2: create 命中已存在 nodeId 时去重，不覆盖既有节点', ()
   assert.equal(result.nodeId, 'dup_page_2');
   assert.ok(graph.hasNode('dup_page_2'), '去重后的新节点应存在');
   assert.equal(graph.getNode('dup_page').title, '原始页', '原节点标题不应被覆盖');
+  await waitForSnapshotJob(first.snapshot?.jobId);
+  await waitForSnapshotJob(result.snapshot?.jobId);
 });
