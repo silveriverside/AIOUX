@@ -200,6 +200,55 @@ test('复用素材会过滤低质量候选，并按 current 优先与 useCount �
   assert.doesNotMatch(userText, /placeholder/);
 });
 
+test('复用素材统计会区分召回数量与实际注入 prompt 数量', async () => {
+  const result = await buildMessagesWithAssets({
+    interaction: {
+      type: 'text',
+      text: '继续优化海洋页面',
+      currentCapabilities: { sceneType: 'immersive_media' },
+    },
+    currentNode: {
+      nodeId: 'ocean_page',
+      title: '海洋页',
+      html: '<main>ocean</main>',
+    },
+    graphSummary: [{ nodeId: 'ocean_page', title: '海洋页', parentId: 'main' }],
+    traceId: 't_prompt_asset_stats',
+    resolveAssetsImpl: async () => [],
+    listReusableAssetsImpl: (nodeId) => {
+      if (nodeId === 'ocean_page') {
+        return [
+          { url: 'https://images.unsplash.com/current-a.jpg', type: 'image', useCount: 4 },
+          { url: 'https://images.unsplash.com/current-b.jpg', type: 'image', useCount: 3 },
+        ];
+      }
+      if (nodeId === 'reef_page') {
+        return [
+          { url: 'https://images.unsplash.com/related-a.jpg', type: 'image', useCount: 2 },
+          { url: 'https://images.unsplash.com/related-b.jpg', type: 'image', useCount: 1 },
+        ];
+      }
+      return [];
+    },
+    findRelatedPagesImpl: () => [{ nodeId: 'reef_page', title: '珊瑚礁页' }],
+  });
+
+  assert.deepEqual(result.reusedAssetStats, {
+    total: 4,
+    current: 2,
+    related: 2,
+  });
+  assert.deepEqual(result.reusedPromptAssetStats, {
+    total: 3,
+    current: 2,
+    related: 1,
+  });
+  const userText = result.messages[1].content.find((part) => part.type === 'text')?.text || '';
+  assert.match(userText, /current-a\.jpg/);
+  assert.match(userText, /related-a\.jpg/);
+  assert.doesNotMatch(userText, /related-b\.jpg/);
+});
+
 test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
   const payload = buildInteractTimingPayload({
     traceId: 't_log_assets',
@@ -216,6 +265,9 @@ test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
       reusedAssetCount: 3,
       reusedCurrentAssetCount: 1,
       reusedRelatedAssetCount: 2,
+      reusedPromptAssetCount: 2,
+      reusedPromptCurrentAssetCount: 1,
+      reusedPromptRelatedAssetCount: 1,
     },
     extra: 'snapshot=async',
   });
@@ -224,5 +276,9 @@ test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
   assert.equal(payload.reusedAssetCount, 3);
   assert.equal(payload.reusedCurrentAssetCount, 1);
   assert.equal(payload.reusedRelatedAssetCount, 2);
+  assert.equal(payload.reusedPromptAssetCount, 2);
+  assert.equal(payload.reusedPromptCurrentAssetCount, 1);
+  assert.equal(payload.reusedPromptRelatedAssetCount, 1);
   assert.equal(payload.timing.reusedAssetCount, 3);
+  assert.equal(payload.timing.reusedPromptAssetCount, 2);
 });

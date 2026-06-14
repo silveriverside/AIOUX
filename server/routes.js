@@ -48,7 +48,7 @@ function formatAssetContextBlock(assets = []) {
 }
 
 function formatReusableAssetContextBlock(assets = []) {
-  const list = (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url).slice(0, 3);
+  const list = selectReusableAssetsForPrompt(assets);
   if (!list.length) return '';
   const lines = [
     '【历史素材复用参考】',
@@ -60,6 +60,10 @@ function formatReusableAssetContextBlock(assets = []) {
     );
   }
   return lines.join('\n');
+}
+
+function selectReusableAssetsForPrompt(assets = []) {
+  return (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url).slice(0, 3);
 }
 
 function isReusableAssetCandidate(asset) {
@@ -110,6 +114,9 @@ export function buildInteractTimingPayload({
     reusedAssetCount: timing.reusedAssetCount ?? 0,
     reusedCurrentAssetCount: timing.reusedCurrentAssetCount ?? 0,
     reusedRelatedAssetCount: timing.reusedRelatedAssetCount ?? 0,
+    reusedPromptAssetCount: timing.reusedPromptAssetCount ?? 0,
+    reusedPromptCurrentAssetCount: timing.reusedPromptCurrentAssetCount ?? 0,
+    reusedPromptRelatedAssetCount: timing.reusedPromptRelatedAssetCount ?? 0,
     timing,
     extra,
   };
@@ -212,14 +219,17 @@ export async function buildMessagesWithAssets({
     reusableAssets = [];
   }
   const reusedAssetStats = summarizeReusableAssets(reusableAssets);
+  const reusablePromptAssets = selectReusableAssetsForPrompt(reusableAssets);
+  const reusedPromptAssetStats = summarizeReusableAssets(reusablePromptAssets);
   const requests = buildAssetRequests(interaction, currentNode, traceId);
-  const reusableText = formatReusableAssetContextBlock(reusableAssets);
+  const reusableText = formatReusableAssetContextBlock(reusablePromptAssets);
   if (!requests.length) {
     return {
       messages: appendTextToUserMessage(baseMessages, reusableText),
       assets: [],
       reusedAssets: reusableAssets,
       reusedAssetStats,
+      reusedPromptAssetStats,
       assetTimingMs: 0,
     };
   }
@@ -235,6 +245,7 @@ export async function buildMessagesWithAssets({
       assets,
       reusedAssets: reusableAssets,
       reusedAssetStats,
+      reusedPromptAssetStats,
       assetTimingMs,
     };
   } catch (err) {
@@ -245,6 +256,7 @@ export async function buildMessagesWithAssets({
       assets: [],
       reusedAssets: reusableAssets,
       reusedAssetStats,
+      reusedPromptAssetStats,
       assetTimingMs,
       assetError: err.message,
     };
@@ -351,6 +363,9 @@ router.post('/api/interact', async (req, res) => {
     timing.reusedAssetCount = messageBundle.reusedAssetStats?.total || 0;
     timing.reusedCurrentAssetCount = messageBundle.reusedAssetStats?.current || 0;
     timing.reusedRelatedAssetCount = messageBundle.reusedAssetStats?.related || 0;
+    timing.reusedPromptAssetCount = messageBundle.reusedPromptAssetStats?.total || 0;
+    timing.reusedPromptCurrentAssetCount = messageBundle.reusedPromptAssetStats?.current || 0;
+    timing.reusedPromptRelatedAssetCount = messageBundle.reusedPromptAssetStats?.related || 0;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
     raw = await chatCompletion(messages, { response_format: { type: 'json_object' } });
