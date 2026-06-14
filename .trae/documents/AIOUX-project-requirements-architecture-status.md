@@ -970,3 +970,12 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，先红灯确认 skipped 统计缺失，再验证 4 条召回素材、3 条注入 prompt 时 skipped 为 1；同时覆盖 timing payload 顶层字段。
 - 验证记录：`server/routes.assetPrompt.test.js` 7/7 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 23/23 通过；全量 `node --test` 115/115 通过；`GetDiagnostics` 无错误。
 - 影响：只新增观测字段，不改变素材召回、排序、去重或 prompt 展示上限；skipped 字段是派生统计，不参与业务决策。
+
+### 2026-06-13 第 3.13 步：prompt 复用素材上限观测字段（feature/reusable-asset-prompt-limit）
+
+- 目标：让 skipped 统计具备上下文，日志消费者无需读代码即可知道当时 prompt 复用素材展示上限。
+- 改动：`server/routes.js` 抽出 `REUSABLE_ASSET_PROMPT_LIMIT=3`，`selectReusableAssetsForPrompt(...)` 使用该常量，并让 `buildMessagesWithAssets(...)` 返回 `reusedPromptAssetLimit`。
+- 接线路径：`/api/interact` 新增 `timing.reusedPromptAssetLimit`，结构化 `[timing]` 日志顶层同步暴露同名字段。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，先红灯确认 limit 字段缺失，再验证 message bundle 与 timing payload 都暴露 `reusedPromptAssetLimit=3`。
+- 验证记录：`server/routes.assetPrompt.test.js` 7/7 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 23/23 通过；全量 `node --test` 115/115 通过；`GetDiagnostics` 无错误。
+- 影响：只新增观测字段和常量，不改变素材召回、排序、去重、prompt 展示数量或 skipped 计算语义。

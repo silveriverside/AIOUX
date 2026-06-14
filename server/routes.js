@@ -10,6 +10,7 @@ import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
+const REUSABLE_ASSET_PROMPT_LIMIT = 3;
 
 function buildAssetRequests(interaction, currentNode, traceId = null) {
   const keywords = [
@@ -63,7 +64,7 @@ function formatReusableAssetContextBlock(assets = []) {
 }
 
 function selectReusableAssetsForPrompt(assets = []) {
-  return (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url).slice(0, 3);
+  return (Array.isArray(assets) ? assets : []).filter((asset) => asset?.url).slice(0, REUSABLE_ASSET_PROMPT_LIMIT);
 }
 
 function isReusableAssetCandidate(asset) {
@@ -117,6 +118,7 @@ export function buildInteractTimingPayload({
     reusedPromptAssetCount: timing.reusedPromptAssetCount ?? 0,
     reusedPromptCurrentAssetCount: timing.reusedPromptCurrentAssetCount ?? 0,
     reusedPromptRelatedAssetCount: timing.reusedPromptRelatedAssetCount ?? 0,
+    reusedPromptAssetLimit: timing.reusedPromptAssetLimit ?? REUSABLE_ASSET_PROMPT_LIMIT,
     reusedPromptSkippedAssetCount: timing.reusedPromptSkippedAssetCount ?? 0,
     timing,
     extra,
@@ -232,6 +234,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptAssetLimit: REUSABLE_ASSET_PROMPT_LIMIT,
       reusedPromptSkippedAssetCount,
       assetTimingMs: 0,
     };
@@ -249,6 +252,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptAssetLimit: REUSABLE_ASSET_PROMPT_LIMIT,
       reusedPromptSkippedAssetCount,
       assetTimingMs,
     };
@@ -261,6 +265,7 @@ export async function buildMessagesWithAssets({
       reusedAssets: reusableAssets,
       reusedAssetStats,
       reusedPromptAssetStats,
+      reusedPromptAssetLimit: REUSABLE_ASSET_PROMPT_LIMIT,
       reusedPromptSkippedAssetCount,
       assetTimingMs,
       assetError: err.message,
@@ -371,6 +376,7 @@ router.post('/api/interact', async (req, res) => {
     timing.reusedPromptAssetCount = messageBundle.reusedPromptAssetStats?.total || 0;
     timing.reusedPromptCurrentAssetCount = messageBundle.reusedPromptAssetStats?.current || 0;
     timing.reusedPromptRelatedAssetCount = messageBundle.reusedPromptAssetStats?.related || 0;
+    timing.reusedPromptAssetLimit = messageBundle.reusedPromptAssetLimit || 0;
     timing.reusedPromptSkippedAssetCount = messageBundle.reusedPromptSkippedAssetCount || 0;
     timing.messageMs = Math.round(performance.now() - messageStart);
     const modelStart = performance.now();
