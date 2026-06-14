@@ -961,3 +961,12 @@ npm run e2e
 - 测试：扩展 `server/routes.assetPrompt.test.js`，先红灯确认 `reusedPromptAssetStats` 缺失，再验证 4 条召回素材中只有前 3 条进入 prompt；同时扩展 timing payload 测试覆盖顶层 prompt 注入统计。
 - 验证记录：`server/routes.assetPrompt.test.js` 7/7 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 23/23 通过；全量 `node --test` 115/115 通过；`GetDiagnostics` 无错误。
 - 影响：只新增观测字段和 helper，不改变素材召回排序、不改变 prompt 最大展示 3 条的既有行为、不改变已有 `reusedAssetStats` 语义。
+
+### 2026-06-13 第 3.12 步：prompt 截断复用素材统计（feature/reusable-asset-skipped-stats）
+
+- 目标：在第 3.11 步区分召回与实际注入的基础上，直接暴露因 prompt 3 条上限被截断的复用素材数量，便于后续判断是否需要调整 prompt 展示上限或摘要策略。
+- 改动：`server/routes.js` 在 `buildMessagesWithAssets(...)` 中新增 `reusedPromptSkippedAssetCount = max(0, recalledTotal - promptTotal)`，并随 message bundle 返回。
+- 接线路径：`/api/interact` 新增 `timing.reusedPromptSkippedAssetCount`，结构化 `[timing]` 日志顶层同步暴露同名字段。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，先红灯确认 skipped 统计缺失，再验证 4 条召回素材、3 条注入 prompt 时 skipped 为 1；同时覆盖 timing payload 顶层字段。
+- 验证记录：`server/routes.assetPrompt.test.js` 7/7 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 23/23 通过；全量 `node --test` 115/115 通过；`GetDiagnostics` 无错误。
+- 影响：只新增观测字段，不改变素材召回、排序、去重或 prompt 展示上限；skipped 字段是派生统计，不参与业务决策。
