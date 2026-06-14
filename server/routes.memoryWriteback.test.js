@@ -7,6 +7,7 @@ import express from 'express';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aioux-routes-memory-'));
 process.env.AIOUX_SNAPSHOTS_DIR = tempRoot;
+const snapshotJobIds = [];
 
 // 用无 query 的 import，保证与 routes.js 内部 import 的 memory 单例一致。
 const graph = await import('./graph.js');
@@ -30,9 +31,21 @@ test.beforeEach(async () => {
 });
 
 test.after(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await Promise.all(snapshotJobIds.map((jobId) => waitForSnapshotJob(jobId)));
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
+
+async function waitForSnapshotJob(jobId, timeoutMs = 3000) {
+  if (!jobId) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = snap.getSnapshotJob(jobId);
+    if (job?.status === 'done') return;
+    if (job?.status === 'failed') throw new Error(`snapshot job failed: ${job.error}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`snapshot job timeout: ${jobId}`);
+}
 
 test('no_update 不写入记忆画像', async () => {
   const wrote = await maybeRecordInteractionMemory({
@@ -182,6 +195,7 @@ test('/api/sync 会从前端回传的最终 HTML 写入素材索引', async () =
     assert.equal(resp.status, 200);
     const body = await resp.json();
     assert.equal(body.ok, true);
+    snapshotJobIds.push(body.snapshot?.jobId);
     const assets = memory.listAssetsByNode('main');
     assert.equal(assets.length, 1);
     assert.equal(assets[0].url, 'https://images.unsplash.com/sync-final.jpg');
