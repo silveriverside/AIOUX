@@ -952,3 +952,12 @@ npm run e2e
 - 测试稳定性：全量验证时发现 `server/routes.applyDecision.test.js` 依赖固定 300ms 等待后台 snapshot job，偶发在第二个 job 完成前清理临时目录；已改为等待具体 `snapshot.jobId` 进入 `done/failed` 后再结束测试。
 - 验证记录：`server/routes.assetPrompt.test.js` 6/6 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 22/22 通过；全量 `node --test` 114/114 通过；`GetDiagnostics` 无错误。
 - 影响：只改变服务端结构化日志内容，不改变 API 响应、不改变 prompt、不改变素材召回和排序逻辑。
+
+### 2026-06-13 第 3.11 步：区分复用素材召回统计与 prompt 实际注入统计（feature/reusable-asset-prompt-stats）
+
+- 目标：补齐素材复用观测口径，区分“召回到的候选素材数量”和“实际展示给模型的 prompt 素材数量”，避免后续分析误把未注入 prompt 的素材也算作模型可见。
+- 改动：`server/routes.js` 新增 `selectReusableAssetsForPrompt(...)`，`buildMessagesWithAssets(...)` 返回 `reusedPromptAssetStats={total,current,related}`，统计实际进入 `【历史素材复用参考】` 的前 3 条素材。
+- 接线路径：`/api/interact` 新增 `timing.reusedPromptAssetCount`、`timing.reusedPromptCurrentAssetCount`、`timing.reusedPromptRelatedAssetCount`，结构化 `[timing]` 日志顶层同步暴露这 3 个字段。
+- 测试：扩展 `server/routes.assetPrompt.test.js`，先红灯确认 `reusedPromptAssetStats` 缺失，再验证 4 条召回素材中只有前 3 条进入 prompt；同时扩展 timing payload 测试覆盖顶层 prompt 注入统计。
+- 验证记录：`server/routes.assetPrompt.test.js` 7/7 通过；`server/routes.assetPrompt.test.js server/intent.variant.test.js server/routes.memoryWriteback.test.js server/routes.applyDecision.test.js` 23/23 通过；全量 `node --test` 115/115 通过；`GetDiagnostics` 无错误。
+- 影响：只新增观测字段和 helper，不改变素材召回排序、不改变 prompt 最大展示 3 条的既有行为、不改变已有 `reusedAssetStats` 语义。
