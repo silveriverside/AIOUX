@@ -1,11 +1,110 @@
 import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const BASE_URL = process.env.AIOUX_BASE_URL || 'http://localhost:3000';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.resolve(__dirname, '..');
+let BASE_URL = process.env.AIOUX_BASE_URL || '';
 const LOCAL_3D_NODE = process.env.AIOUX_E2E_3D_NODE || 'earth_3d_showcase';
 const MODEL_TIMEOUT_MS = Number(process.env.AIOUX_E2E_MODEL_TIMEOUT_MS || 120000);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function buildRuntimeConfig() {
+  if (process.env.AIOUX_BASE_URL) {
+    return {
+      mode: 'external',
+      baseUrl: process.env.AIOUX_BASE_URL,
+      snapshotsDir: null,
+      port: null,
+    };
+  }
+
+  const port = await findFreePort();
+  const snapshotsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aioux-e2e-snapshots-'));
+  return {
+    mode: 'managed',
+    baseUrl: `http://127.0.0.1:${port}`,
+    snapshotsDir,
+    port,
+  };
+}
+
+async function waitForManagedServer(child, baseUrl, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let exited = false;
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { logs += chunk.toString(); });
+  child.once('exit', (code, signal) => {
+    exited = true;
+    logs += `\n[e2e] managed server exited code=${code} signal=${signal}`;
+  });
+
+  while (Date.now() < deadline) {
+    if (exited) throw new Error(`隔离 E2E 服务提前退出:\n${logs}`);
+    try {
+      const response = await fetch(`${baseUrl}/api/status`);
+      if (response.ok) return;
+    } catch {
+      // 服务尚未监听，继续短轮询。
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`隔离 E2E 服务启动超时:\n${logs}`);
+}
+
+async function startManagedServer(runtime) {
+  const child = spawn(process.execPath, ['server/index.js'], {
+    cwd: ROOT_DIR,
+    env: {
+      ...process.env,
+      PORT: String(runtime.port),
+      AIOUX_SNAPSHOTS_DIR: runtime.snapshotsDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  await waitForManagedServer(child, runtime.baseUrl);
+  return child;
+}
+
+async function stopManagedServer(child) {
+  if (!child || child.killed) return;
+  child.kill('SIGTERM');
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!child.killed) child.kill('SIGKILL');
+      resolve();
+    }, 3000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function cleanupRuntime(runtime) {
+  if (runtime?.mode === 'managed' && runtime.snapshotsDir) {
+    fs.rmSync(runtime.snapshotsDir, { recursive: true, force: true });
+  }
 }
 
 async function getJson(path, options) {
@@ -144,15 +243,37 @@ async function testBadPatchGuard(page) {
 }
 
 async function main() {
-  await checkServer();
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const runtime = await buildRuntimeConfig();
+  BASE_URL = runtime.baseUrl;
+  if (process.env.AIOUX_E2E_DRY_RUN === '1') {
+    console.log(JSON.stringify({
+      mode: runtime.mode,
+      baseUrl: runtime.baseUrl,
+      snapshotsDir: runtime.snapshotsDir,
+    }));
+    cleanupRuntime(runtime);
+    return;
+  }
+
+  let managedServer = null;
+  let browser = null;
   try {
+    if (runtime.mode === 'managed') {
+      managedServer = await startManagedServer(runtime);
+      console.log(`[e2e] managed server: ${runtime.baseUrl}`);
+      console.log(`[e2e] snapshots dir: ${runtime.snapshotsDir}`);
+    }
+
+    await checkServer();
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
     await testLocalNative3d(page);
     await testSnapshotStatus(page);
     await testBadPatchGuard(page);
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    await stopManagedServer(managedServer);
+    cleanupRuntime(runtime);
   }
 }
 
