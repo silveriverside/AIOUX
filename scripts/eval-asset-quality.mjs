@@ -8,10 +8,14 @@ function resolveNow() {
 function parseLimit(argv = process.argv.slice(2)) {
   const inlineArg = argv.find((item) => item.startsWith('--limit='));
   const limitIndex = argv.indexOf('--limit');
-  const rawValue = inlineArg ? inlineArg.slice('--limit='.length) : argv[limitIndex + 1];
+  const spacedArg = limitIndex >= 0 ? argv[limitIndex + 1] : null;
+  const rawValue = inlineArg ? inlineArg.slice('--limit='.length) : spacedArg;
   if (!rawValue) return null;
   const value = Number(rawValue);
-  return Number.isInteger(value) && value > 0 ? value : null;
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('Invalid --limit: expected a positive integer');
+  }
+  return value;
 }
 
 function evaluateAssetQuality({ now = resolveNow(), limit = parseLimit() } = {}) {
@@ -49,9 +53,14 @@ function printTextReport(report) {
   }
 }
 
-const report = evaluateAssetQuality();
-if (process.argv.includes('--json')) {
-  console.log(JSON.stringify(report));
-} else {
-  printTextReport(report);
+try {
+  const report = evaluateAssetQuality();
+  if (process.argv.includes('--json')) {
+    console.log(JSON.stringify(report));
+  } else {
+    printTextReport(report);
+  }
+} catch (err) {
+  console.error(err.message);
+  process.exitCode = 1;
 }
