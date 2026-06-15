@@ -76,6 +76,28 @@ test('recordAssetUsage 白名单内外区分', async () => {
   assert.ok(snap.events.some((e) => e.type === 'asset_rejected'));
 });
 
+test('recordAssetUsage 记录素材最近使用时间质量信号', async () => {
+  await memory.resetMemory();
+  await memory.recordAssetUsage({
+    nodeId: 'earth',
+    assets: [{ url: 'https://images.unsplash.com/reuse-quality.jpg', type: 'image' }],
+  });
+  const first = memory.listAssetsByNode('earth')[0];
+  assert.equal(typeof first.lastUsedAt, 'number');
+  assert.equal(first.lastUsedAt, first.updatedAt);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await memory.recordAssetUsage({
+    nodeId: 'earth',
+    assets: [{ url: 'https://images.unsplash.com/reuse-quality.jpg', type: 'image' }],
+  });
+  const second = memory.listAssetsByNode('earth')[0];
+  assert.equal(second.createdAt, first.createdAt);
+  assert.ok(second.lastUsedAt >= first.lastUsedAt);
+  assert.equal(second.lastUsedAt, second.updatedAt);
+  assert.equal(second.useCount, 2);
+});
+
 test('recordRevert 累加 revertCount 与 variantReverts', async () => {
   await memory.resetMemory();
   await memory.recordInteraction({

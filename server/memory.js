@@ -136,6 +136,7 @@ export function recordAssetUsage({ nodeId, assets = [] } = {}) {
     rec.type = asset.type || rec.type;
     if (nodeId && !rec.usedByNodes.includes(nodeId)) rec.usedByNodes.push(nodeId);
     rec.updatedAt = now;
+    rec.lastUsedAt = now;
     memory.assets[key] = rec;
   }
   return enqueuePersist();
