@@ -1,0 +1,46 @@
+import { getMemorySnapshot, scoreAssetQuality } from '../server/memory.js';
+
+function resolveNow() {
+  const override = Number(process.env.AIOUX_ASSET_QUALITY_NOW || 0);
+  return override > 0 ? override : Date.now();
+}
+
+function evaluateAssetQuality({ now = resolveNow() } = {}) {
+  const snapshot = getMemorySnapshot();
+  const assets = Object.values(snapshot.assets || {})
+    .map((asset) => ({
+      assetKey: asset.assetKey || '',
+      url: asset.url || '',
+      type: asset.type || null,
+      usedByNodes: Array.isArray(asset.usedByNodes) ? asset.usedByNodes : [],
+      useCount: Number(asset.useCount || 0),
+      lastUsedAt: asset.lastUsedAt || null,
+      quality: scoreAssetQuality(asset, { now }),
+    }))
+    .sort((a, b) => b.quality.score - a.quality.score || a.url.localeCompare(b.url));
+
+  return {
+    total: assets.length,
+    generatedAt: now,
+    assets,
+  };
+}
+
+function printTextReport(report) {
+  console.log('Asset quality evaluator');
+  console.log(`total=${report.total}`);
+  const top = report.assets[0];
+  if (top) {
+    console.log(`top=${top.url} score=${top.quality.score}`);
+  }
+  for (const asset of report.assets.slice(0, 10)) {
+    console.log(`asset=${asset.url} score=${asset.quality.score} use=${asset.quality.components.use} coverage=${asset.quality.components.coverage} recency=${asset.quality.components.recency}`);
+  }
+}
+
+const report = evaluateAssetQuality();
+if (process.argv.includes('--json')) {
+  console.log(JSON.stringify(report));
+} else {
+  printTextReport(report);
+}

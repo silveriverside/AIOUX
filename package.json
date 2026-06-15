@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "e2e": "node scripts/e2e.mjs",
-    "eval:intent-routing": "node scripts/eval-intent-routing.mjs"
+    "eval:intent-routing": "node scripts/eval-intent-routing.mjs",
+    "eval:asset-quality": "node scripts/eval-asset-quality.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

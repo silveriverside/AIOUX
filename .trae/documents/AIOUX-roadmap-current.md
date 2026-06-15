@@ -7,7 +7,7 @@
 
 - 项目已具备可运行的实时生成式 UX Demo：文本交互、Page Graph、节点历史、回退、异步快照、patch sync、多模态入口和浏览器端到端脚本均已打通。
 - 阶段 A 的阻断性 bug 已基本完成；阶段 B 的素材/记忆闭环已推进到第 3.13 步。
-- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 22/22 通过；近期全量 `node --test` 为 117/117 通过，`GetDiagnostics` 无错误。
+- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 22/22 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 123/123 通过，`GetDiagnostics` 无错误。
 - 当前最大风险不在基础链路，而在模型输出稳定性、安全隔离、意图路由误判和生成质量稳定性。
 
 ## 2. 已完成里程碑
@@ -19,7 +19,7 @@
 - 记忆链路：记忆路径统一、偏好画像注入 prompt、成功交互写回、revert 负反馈写回。
 - 素材链路：素材异步解析、最终 HTML 实际引用素材写回、当前页和相关页历史素材复用。
 - 素材观测：召回数量、实际注入 prompt 数量、被 prompt 上限截断数量、prompt 上限字段都已进入 timing 和结构化日志。
-- 素材质量信号：`memory.assets` 已记录 `lastUsedAt`；`scoreAssetQuality(...)` 已可基于使用次数、节点覆盖和最近使用时间输出离线质量分。
+- 素材质量信号：`memory.assets` 已记录 `lastUsedAt`；`scoreAssetQuality(...)` 已可基于使用次数、节点覆盖和最近使用时间输出离线质量分；`npm run eval:asset-quality` 可输出离线排序报告。
 - E2E 隔离：`npm run e2e` 默认托管临时服务，使用临时 `AIOUX_SNAPSHOTS_DIR` 和临时端口；显式 `AIOUX_BASE_URL` 时保留外部服务模式。
 - 意图路由评估：新增 `npm run eval:intent-routing`，可离线输出总准确率、误判明细和按 category 分类统计。
 
@@ -37,7 +37,7 @@
 
 ### 4.1 低风险优先闭环
 
-- `feature/reusable-asset-quality-ranking-integration`：在已有质量分基础上评估是否接入素材复用排序，并保留可回滚观测开关。
+- `feature/reusable-asset-quality-ranking-integration`：基于离线质量评估器结果，评估是否接入素材复用排序，并保留可回滚观测开关。
 - `feature/visual-quality-evaluator`：沉淀画面型、卡片型、2D/3D 场景的质量样本和自动/半自动评分。
 - `feature/intent-routing-evaluator-expanded`：继续扩展真实页面和自然语言样本，覆盖更多误判边界。
 
@@ -55,7 +55,7 @@
 
 ## 5. 当前建议立即推进
 
-- 优先做 `feature/reusable-asset-quality-ranking-integration`，把素材复用从“离线可评分”推进到“可排序调优”；接入前需先说明排序变化影响。
+- 优先做 `feature/reusable-asset-quality-ranking-integration`，把素材复用从“离线可评估”推进到“可排序调优”；接入前需先说明排序变化影响。
 - 随后扩展 `feature/intent-routing-evaluator-expanded`，补充真实页面和自然语言样本。
 - `json_schema strict` 和 sandbox 安全属于核心策略/架构改动，实施前需要单独说明影响并确认。
 
@@ -65,6 +65,7 @@
 - 诊断：改动后运行 `GetDiagnostics`，确认无新增错误。
 - E2E：默认 `npm run e2e` 应输出 `managed server` 与临时 `snapshots dir`，并完成 snapshot、sync、坏 patch、本地 3D 交互验证。
 - 意图路由：`npm run eval:intent-routing` 应输出总样本数、准确率、分类统计和误判明细；当前基础样本期望 100% 通过。
+- 素材质量：`npm run eval:asset-quality` 应输出素材总数、Top 素材和质量分；`--json` 应输出按质量分排序的 assets 列表。
 - 文档：每个小步完成后更新本路线看板或总文档操作日志。
 
 ## 7. 最新推进记录
@@ -75,3 +76,4 @@
 - 2026-06-15：新增意图路由离线评估器，复用 `route-interaction.cases.js` 输出准确率、分类统计和失败明细。
 - 2026-06-15：为素材记忆新增 `lastUsedAt` 最近使用时间质量信号，后续可用于素材新鲜度和质量评分。
 - 2026-06-15：新增 `scoreAssetQuality(...)` 离线质量评分 helper，暂不接入素材排序策略。
+- 2026-06-15：新增素材质量离线评估器 `npm run eval:asset-quality`，读取 `memory.assets` 输出质量排序报告，暂不改变运行时召回排序。
