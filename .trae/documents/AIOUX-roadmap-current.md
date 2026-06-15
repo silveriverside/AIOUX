@@ -19,6 +19,7 @@
 - 记忆链路：记忆路径统一、偏好画像注入 prompt、成功交互写回、revert 负反馈写回。
 - 素材链路：素材异步解析、最终 HTML 实际引用素材写回、当前页和相关页历史素材复用。
 - 素材观测：召回数量、实际注入 prompt 数量、被 prompt 上限截断数量、prompt 上限字段都已进入 timing 和结构化日志。
+- 素材质量信号：`memory.assets` 已记录 `lastUsedAt`，为后续素材新鲜度、复用质量和排序评分提供基础信号。
 - E2E 隔离：`npm run e2e` 默认托管临时服务，使用临时 `AIOUX_SNAPSHOTS_DIR` 和临时端口；显式 `AIOUX_BASE_URL` 时保留外部服务模式。
 - 意图路由评估：新增 `npm run eval:intent-routing`，可离线输出总准确率、误判明细和按 category 分类统计。
 
@@ -27,7 +28,7 @@
 - P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言，启发式修复不能覆盖所有情况。
 - P0：sandbox iframe 同时允许 `allow-scripts` 与 `allow-same-origin`，生成 HTML 又允许内联脚本，隔离边界仍需安全评估。
 - P1：意图路由仍以启发式为主，已有基础可回放样本集和准确率输出，但样本规模仍偏小，需要继续扩展真实场景。
-- P1：素材复用已有观测字段，但还没有基于失效、回退、使用结果的质量评分。
+- P1：素材复用已有观测字段和最近使用时间信号，但还没有基于失效、回退、使用结果的综合质量评分。
 - P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页。
 - P2：snapshot job 状态仅在进程内存中，服务重启后历史 jobId 不可恢复。
 - P2：缺少操作 trace 面板，无法在前端直接查看模型决策、修复记录、素材复用和 commit。
@@ -36,7 +37,7 @@
 
 ### 4.1 低风险优先闭环
 
-- `feature/reusable-asset-quality-signals`：基于素材使用次数、非法 URL、回退信号、失效检测结果沉淀素材质量因子。
+- `feature/reusable-asset-quality-score`：基于素材使用次数、最近使用时间、非法 URL、回退信号、失效检测结果沉淀素材质量分。
 - `feature/visual-quality-evaluator`：沉淀画面型、卡片型、2D/3D 场景的质量样本和自动/半自动评分。
 - `feature/intent-routing-evaluator-expanded`：继续扩展真实页面和自然语言样本，覆盖更多误判边界。
 
@@ -54,7 +55,7 @@
 
 ## 5. 当前建议立即推进
 
-- 优先做 `feature/reusable-asset-quality-signals`，把素材复用从“可观测”推进到“可调优”。
+- 优先做 `feature/reusable-asset-quality-score`，把素材复用从“已有基础质量信号”推进到“可排序调优”。
 - 随后扩展 `feature/intent-routing-evaluator-expanded`，补充真实页面和自然语言样本。
 - `json_schema strict` 和 sandbox 安全属于核心策略/架构改动，实施前需要单独说明影响并确认。
 
@@ -72,3 +73,4 @@
 - 2026-06-14：完成 E2E 快照隔离，`npm run e2e` 默认启动托管临时服务；`AIOUX_BASE_URL` 显式设置时仍走外部服务模式。
 - 2026-06-14：修复 `routes.memoryWriteback.test.js` 的后台 snapshot job 等待问题，避免测试清理临时目录时与异步 git 写入竞争。
 - 2026-06-15：新增意图路由离线评估器，复用 `route-interaction.cases.js` 输出准确率、分类统计和失败明细。
+- 2026-06-15：为素材记忆新增 `lastUsedAt` 最近使用时间质量信号，后续可用于素材新鲜度和质量评分。
