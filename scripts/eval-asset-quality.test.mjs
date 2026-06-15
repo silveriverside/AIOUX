@@ -119,3 +119,16 @@ test('素材质量评估脚本支持 --limit N 空格参数写法', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('素材质量评估脚本对无效 --limit 显式失败', () => {
+  const { tempRoot, now } = createMemoryFixture();
+  try {
+    const result = runEval(tempRoot, now, ['--json', '--limit=0']);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid --limit/);
+    assert.equal(result.stdout, '');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
