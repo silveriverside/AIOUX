@@ -7,7 +7,7 @@
 
 - 项目已具备可运行的实时生成式 UX Demo：文本交互、Page Graph、节点历史、回退、异步快照、patch sync、多模态入口和浏览器端到端脚本均已打通。
 - 阶段 A 的阻断性 bug 已基本完成；阶段 B 的素材/记忆闭环已推进到第 3.13 步。
-- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 22/22 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 123/123 通过，`GetDiagnostics` 无错误。
+- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 22/22 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 124/124 通过，`GetDiagnostics` 无错误。
 - 当前最大风险不在基础链路，而在模型输出稳定性、安全隔离、意图路由误判和生成质量稳定性。
 
 ## 2. 已完成里程碑
@@ -65,7 +65,7 @@
 - 诊断：改动后运行 `GetDiagnostics`，确认无新增错误。
 - E2E：默认 `npm run e2e` 应输出 `managed server` 与临时 `snapshots dir`，并完成 snapshot、sync、坏 patch、本地 3D 交互验证。
 - 意图路由：`npm run eval:intent-routing` 应输出总样本数、准确率、分类统计和误判明细；当前基础样本期望 100% 通过。
-- 素材质量：`npm run eval:asset-quality` 应输出素材总数、Top 素材和质量分；`--json` 应输出按质量分排序的 assets 列表。
+- 素材质量：`npm run eval:asset-quality` 应输出素材总数、Top 素材和质量分；`--json` 应输出按质量分排序的 assets 列表；`--limit=N` 应限制输出条数但保留全量 total。
 - 文档：每个小步完成后更新本路线看板或总文档操作日志。
 
 ## 7. 最新推进记录
@@ -77,3 +77,4 @@
 - 2026-06-15：为素材记忆新增 `lastUsedAt` 最近使用时间质量信号，后续可用于素材新鲜度和质量评分。
 - 2026-06-15：新增 `scoreAssetQuality(...)` 离线质量评分 helper，暂不接入素材排序策略。
 - 2026-06-15：新增素材质量离线评估器 `npm run eval:asset-quality`，读取 `memory.assets` 输出质量排序报告，暂不改变运行时召回排序。
+- 2026-06-15：为素材质量离线评估器新增 `--limit=N`，便于大素材集只查看 Top N，同时保留全量素材总数。
