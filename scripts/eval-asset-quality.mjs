@@ -6,9 +6,11 @@ function resolveNow() {
 }
 
 function parseLimit(argv = process.argv.slice(2)) {
-  const arg = argv.find((item) => item.startsWith('--limit='));
-  if (!arg) return null;
-  const value = Number(arg.slice('--limit='.length));
+  const inlineArg = argv.find((item) => item.startsWith('--limit='));
+  const limitIndex = argv.indexOf('--limit');
+  const rawValue = inlineArg ? inlineArg.slice('--limit='.length) : argv[limitIndex + 1];
+  if (!rawValue) return null;
+  const value = Number(rawValue);
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 

@@ -103,3 +103,19 @@ test('素材质量评估脚本支持 --limit 限制输出条数且保留总数',
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('素材质量评估脚本支持 --limit N 空格参数写法', () => {
+  const { tempRoot, now } = createMemoryFixture();
+  try {
+    const result = runEval(tempRoot, now, ['--json', '--limit', '1']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout);
+
+    assert.equal(report.total, 2);
+    assert.equal(report.limit, 1);
+    assert.equal(report.assets.length, 1);
+    assert.equal(report.assets[0].url, 'https://images.unsplash.com/recent.jpg');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
