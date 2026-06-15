@@ -142,6 +142,27 @@ export function recordAssetUsage({ nodeId, assets = [] } = {}) {
   return enqueuePersist();
 }
 
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+export function scoreAssetQuality(asset = {}, { now = Date.now() } = {}) {
+  const use = Math.max(0, Number(asset?.useCount || 0));
+  const coverage = Array.isArray(asset?.usedByNodes) ? asset.usedByNodes.length : 0;
+  const lastUsedAt = Number(asset?.lastUsedAt || asset?.updatedAt || 0);
+  const ageDays = lastUsedAt > 0 ? Math.max(0, (now - lastUsedAt) / (24 * 60 * 60 * 1000)) : Infinity;
+  const recency = Number.isFinite(ageDays) ? Math.max(0, 1 - ageDays / 30) : 0;
+  const components = {
+    use,
+    coverage,
+    recency: round3(recency),
+  };
+  return {
+    score: round3(components.use + components.coverage + components.recency),
+    components,
+  };
+}
+
 export function getPreferenceProfile() {
   ensureLoaded();
   return derivePreference(memory.preferences);
