@@ -98,6 +98,29 @@ test('recordAssetUsage 记录素材最近使用时间质量信号', async () => 
   assert.equal(second.useCount, 2);
 });
 
+test('scoreAssetQuality 基于使用次数、节点覆盖和最近使用时间输出可解释分数', () => {
+  const now = Date.UTC(2026, 0, 31);
+  const recent = memory.scoreAssetQuality({
+    useCount: 4,
+    usedByNodes: ['earth', 'mars'],
+    lastUsedAt: now - 2 * 24 * 60 * 60 * 1000,
+  }, { now });
+  const stale = memory.scoreAssetQuality({
+    useCount: 1,
+    usedByNodes: ['earth'],
+    lastUsedAt: now - 60 * 24 * 60 * 60 * 1000,
+  }, { now });
+
+  assert.deepEqual(recent.components, {
+    use: 4,
+    coverage: 2,
+    recency: 0.933,
+  });
+  assert.equal(recent.score, 6.933);
+  assert.equal(stale.components.recency, 0);
+  assert.ok(recent.score > stale.score);
+});
+
 test('recordRevert 累加 revertCount 与 variantReverts', async () => {
   await memory.resetMemory();
   await memory.recordInteraction({
