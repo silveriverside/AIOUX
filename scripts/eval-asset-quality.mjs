@@ -5,9 +5,16 @@ function resolveNow() {
   return override > 0 ? override : Date.now();
 }
 
-function evaluateAssetQuality({ now = resolveNow() } = {}) {
+function parseLimit(argv = process.argv.slice(2)) {
+  const arg = argv.find((item) => item.startsWith('--limit='));
+  if (!arg) return null;
+  const value = Number(arg.slice('--limit='.length));
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function evaluateAssetQuality({ now = resolveNow(), limit = parseLimit() } = {}) {
   const snapshot = getMemorySnapshot();
-  const assets = Object.values(snapshot.assets || {})
+  const allAssets = Object.values(snapshot.assets || {})
     .map((asset) => ({
       assetKey: asset.assetKey || '',
       url: asset.url || '',
@@ -18,9 +25,11 @@ function evaluateAssetQuality({ now = resolveNow() } = {}) {
       quality: scoreAssetQuality(asset, { now }),
     }))
     .sort((a, b) => b.quality.score - a.quality.score || a.url.localeCompare(b.url));
+  const assets = limit ? allAssets.slice(0, limit) : allAssets;
 
   return {
-    total: assets.length,
+    total: allAssets.length,
+    limit,
     generatedAt: now,
     assets,
   };
