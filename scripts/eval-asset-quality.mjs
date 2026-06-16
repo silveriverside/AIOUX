@@ -53,7 +53,21 @@ function printTextReport(report) {
   }
 }
 
+function printHelp() {
+  console.log(`Usage: npm run eval:asset-quality -- [options]
+
+Options:
+  --json             Output the full report as JSON.
+  --limit=N          Return only the top N assets while keeping total as the full count.
+  --limit N          Same as --limit=N.
+  --help             Show this help message.`);
+}
+
 try {
+  if (process.argv.includes('--help')) {
+    printHelp();
+    process.exit(0);
+  }
   const report = evaluateAssetQuality();
   if (process.argv.includes('--json')) {
     console.log(JSON.stringify(report));
