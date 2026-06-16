@@ -60,11 +60,11 @@ Options:
   --json             Output the full report as JSON.
   --limit=N          Return only the top N assets while keeping total as the full count.
   --limit N          Same as --limit=N.
-  --help             Show this help message.`);
+  --help, -h         Show this help message.`);
 }
 
 try {
-  if (process.argv.includes('--help')) {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
     printHelp();
     process.exit(0);
   }
