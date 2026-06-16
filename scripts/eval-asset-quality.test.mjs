@@ -147,3 +147,16 @@ test('素材质量评估脚本支持 --help 输出用法', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('素材质量评估脚本支持 -h 输出用法', () => {
+  const { tempRoot, now } = createMemoryFixture();
+  try {
+    const result = runEval(tempRoot, now, ['-h']);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Usage: npm run eval:asset-quality/);
+    assert.match(result.stdout, /--help/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
