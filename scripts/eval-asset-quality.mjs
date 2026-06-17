@@ -10,7 +10,12 @@ function parseLimit(argv = process.argv.slice(2)) {
   const limitIndex = argv.indexOf('--limit');
   const spacedArg = limitIndex >= 0 ? argv[limitIndex + 1] : null;
   const rawValue = inlineArg ? inlineArg.slice('--limit='.length) : spacedArg;
-  if (!rawValue) return null;
+  if (!rawValue) {
+    if (inlineArg || limitIndex >= 0) {
+      throw new Error('Invalid --limit: expected a positive integer');
+    }
+    return null;
+  }
   const value = Number(rawValue);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error('Invalid --limit: expected a positive integer');
