@@ -65,7 +65,7 @@
 - 诊断：改动后运行 `GetDiagnostics`，确认无新增错误。
 - E2E：默认 `npm run e2e` 应输出 `managed server` 与临时 `snapshots dir`，并完成 snapshot、sync、坏 patch、本地 3D 交互验证。
 - 意图路由：`npm run eval:intent-routing` 应输出总样本数、准确率、分类统计和误判明细；当前基础样本期望 100% 通过。
-- 素材质量：`npm run eval:asset-quality` 应输出素材总数、Top 素材和质量分；`--json` 应输出按质量分排序的 assets 列表；`--limit=N` / `--limit N` 应限制输出条数但保留全量 total；无效或缺失 limit 值应显式失败；`--help` / `-h` 应输出用法说明。
+- 素材质量：`npm run eval:asset-quality` 应输出素材总数、Top 素材和质量分；`--json` 应输出按质量分排序的 assets 列表与 summary 摘要；`--limit=N` / `--limit N` 应限制输出条数但保留全量 total；无效或缺失 limit 值应显式失败；`--help` / `-h` 应输出用法说明。
 - 文档：每个小步完成后更新本路线看板或总文档操作日志。
 
 ## 7. 最新推进记录
@@ -81,3 +81,4 @@
 - 2026-06-15：素材质量离线评估器对无效 `--limit` 显式返回错误，避免参数拼写或取值错误被静默当作无限制运行。
 - 2026-06-16：素材质量离线评估器对缺失值的 `--limit` 显式返回错误，避免参数遗漏被静默当作无限制运行。
 - 2026-06-16：素材质量离线评估器新增 `--help` / `-h`，直接输出 `--json`、`--limit=N`、`--limit N` 等用法说明。
+- 2026-06-16：素材质量离线评估器 JSON 报告新增 `summary.topScore` 与 `summary.averageScore`，便于快速观察整体质量分布。
