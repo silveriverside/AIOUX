@@ -70,6 +70,10 @@ test('素材质量评估脚本输出按质量分排序的 JSON', () => {
     assert.equal(report.assets[0].url, 'https://images.unsplash.com/recent.jpg');
     assert.equal(report.assets[0].quality.score, 6.933);
     assert.equal(report.assets[1].url, 'https://images.unsplash.com/stale.jpg');
+    assert.deepEqual(report.summary, {
+      topScore: 6.933,
+      averageScore: 4.467,
+    });
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

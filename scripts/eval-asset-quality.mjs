@@ -23,6 +23,10 @@ function parseLimit(argv = process.argv.slice(2)) {
   return value;
 }
 
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
 function evaluateAssetQuality({ now = resolveNow(), limit = parseLimit() } = {}) {
   const snapshot = getMemorySnapshot();
   const allAssets = Object.values(snapshot.assets || {})
@@ -37,11 +41,16 @@ function evaluateAssetQuality({ now = resolveNow(), limit = parseLimit() } = {})
     }))
     .sort((a, b) => b.quality.score - a.quality.score || a.url.localeCompare(b.url));
   const assets = limit ? allAssets.slice(0, limit) : allAssets;
+  const totalScore = allAssets.reduce((sum, asset) => sum + asset.quality.score, 0);
 
   return {
     total: allAssets.length,
     limit,
     generatedAt: now,
+    summary: {
+      topScore: allAssets[0]?.quality.score || 0,
+      averageScore: allAssets.length ? round3(totalScore / allAssets.length) : 0,
+    },
     assets,
   };
 }
