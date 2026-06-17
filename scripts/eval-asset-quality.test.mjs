@@ -133,6 +133,19 @@ test('素材质量评估脚本对无效 --limit 显式失败', () => {
   }
 });
 
+test('素材质量评估脚本对缺失 --limit 值显式失败', () => {
+  const { tempRoot, now } = createMemoryFixture();
+  try {
+    const result = runEval(tempRoot, now, ['--json', '--limit']);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid --limit/);
+    assert.equal(result.stdout, '');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('素材质量评估脚本支持 --help 输出用法', () => {
   const { tempRoot, now } = createMemoryFixture();
   try {
