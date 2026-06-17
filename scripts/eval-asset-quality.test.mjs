@@ -86,6 +86,7 @@ test('素材质量评估脚本文本模式输出摘要', () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /Asset quality evaluator/);
     assert.match(result.stdout, /total=2/);
+    assert.match(result.stdout, /averageScore=4\.467/);
     assert.match(result.stdout, /top=https:\/\/images\.unsplash\.com\/recent\.jpg score=6\.933/);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
