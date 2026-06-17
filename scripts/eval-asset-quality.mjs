@@ -58,6 +58,7 @@ function evaluateAssetQuality({ now = resolveNow(), limit = parseLimit() } = {})
 function printTextReport(report) {
   console.log('Asset quality evaluator');
   console.log(`total=${report.total}`);
+  console.log(`averageScore=${report.summary.averageScore}`);
   const top = report.assets[0];
   if (top) {
     console.log(`top=${top.url} score=${top.quality.score}`);
