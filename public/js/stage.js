@@ -6,6 +6,10 @@ let currentCapabilities = {
   refinableAspects: [],
   explorableTargets: [],
 };
+const DEFAULT_SANDBOX_TOKENS = ['allow-scripts', 'allow-popups'];
+const FORBIDDEN_SANDBOX_COMBINATIONS = [
+  ['allow-scripts', 'allow-same-origin'],
+];
 
 function normalizeCapabilities(raw) {
   return {
@@ -16,11 +20,13 @@ function normalizeCapabilities(raw) {
   };
 }
 
-window.addEventListener('message', (e) => {
-  const d = e.data;
-  if (!d?.__aioux || d.kind !== 'frame-capabilities') return;
-  currentCapabilities = normalizeCapabilities(d.capabilities);
-});
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d?.__aioux || d.kind !== 'frame-capabilities') return;
+    currentCapabilities = normalizeCapabilities(d.capabilities);
+  });
+}
 
 const BRIDGE_SCRIPT = `<script>
 // 把可探索元素的点击/坐标转发给父窗口，由 pointer 模块统一处理
@@ -100,6 +106,19 @@ const BRIDGE_SCRIPT = `<script>
 })();
 <\/script>`;
 
+export function getSafeSandboxValue(input = DEFAULT_SANDBOX_TOKENS.join(' ')) {
+  const tokens = String(input)
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  for (const combo of FORBIDDEN_SANDBOX_COMBINATIONS) {
+    if (combo.every((token) => tokens.includes(token))) {
+      throw new Error(`危险的 iframe sandbox 权限组合已被阻止: ${combo.join(' + ')}`);
+    }
+  }
+  return [...new Set(tokens)].join(' ');
+}
+
 // 包裹模型生成的片段为完整文档，注入基础样式与点击转发脚本
 function wrapDocument(fragment) {
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
@@ -113,12 +132,65 @@ ${BRIDGE_SCRIPT}</head>
 <body>${fragment}</body></html>`;
 }
 
+function parseDocument(html) {
+  if (typeof DOMParser === 'undefined') {
+    throw new Error('DOMParser 不可用，无法解析文档');
+  }
+  return new DOMParser().parseFromString(wrapDocument(html), 'text/html');
+}
+
+export function extractBodyHtmlFromDocument(documentHtml) {
+  const html = String(documentHtml || '');
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  return bodyMatch ? bodyMatch[1] : html;
+}
+
+function applyPatchesWithStringFallback(beforeHtml, patches) {
+  let html = String(beforeHtml || '');
+  for (const p of patches || []) {
+    if (!/^#[a-zA-Z][\w-]*$/.test(p.selector || '')) {
+      throw new Error(`当前环境不支持该 patch selector: ${p.selector}`);
+    }
+    const id = p.selector.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(<([a-zA-Z][\\w:-]*)([^>]*?)\\sid=["']${id}["'][^>]*>)([\\s\\S]*?)(</\\2>)`, 'i');
+    const matched = html.match(pattern);
+    if (!matched) throw new Error(`patch 未命中目标: ${p.selector}`);
+    if (p.action === 'append') {
+      html = html.replace(pattern, `$1$4${p.html || ''}$5`);
+    } else if (p.action === 'replace') {
+      html = html.replace(pattern, p.html || '');
+    } else if (p.action === 'remove') {
+      html = html.replace(pattern, '');
+    } else {
+      throw new Error(`不支持的 patch action: ${p.action}`);
+    }
+  }
+  if (beforeHtml.trim() && !html.trim()) {
+    throw new Error('patch 后页面内容为空');
+  }
+  return html;
+}
+
+export function buildPatchedHtml(beforeHtml, patches) {
+  try {
+    if (typeof DOMParser === 'undefined') {
+      return { ok: true, html: applyPatchesWithStringFallback(beforeHtml, patches) };
+    }
+    const doc = parseDocument(beforeHtml);
+    applyPatchOperations(doc, patches);
+    const html = validatePatchedDocument(doc, beforeHtml);
+    return { ok: true, html };
+  } catch (err) {
+    return { ok: false, error: err.message, html: beforeHtml };
+  }
+}
+
 export function renderFull(html) {
   currentCapabilities = normalizeCapabilities(null);
-  const doc = iframe().contentDocument;
-  doc.open();
-  doc.write(wrapDocument(html));
-  doc.close();
+  const frame = iframe();
+  if (!frame) return;
+  frame.setAttribute('sandbox', getSafeSandboxValue());
+  frame.srcdoc = wrapDocument(html);
 }
 
 const ALLOWED_PATCH_ACTIONS = new Set(['append', 'replace', 'remove']);
@@ -215,8 +287,9 @@ function validatePatchedDocument(doc, beforeHtml) {
 
 // 对当前 iframe DOM 应用增量补丁
 export function applyPatches(patches) {
-  const doc = iframe().contentDocument;
-  applyPatchOperations(doc, patches);
+  const result = buildPatchedHtml(getCurrentHtml(), patches);
+  if (!result.ok) throw new Error(result.error);
+  renderFull(result.html);
 }
 
 export function applyPatchesSafely(patches) {
@@ -224,7 +297,7 @@ export function applyPatchesSafely(patches) {
   const timing = {};
   const beforeHtml = getCurrentHtml();
   try {
-    const doc = iframe().contentDocument;
+    const doc = parseDocument(beforeHtml);
     const validateStart = performance.now();
     validatePatchShape(doc, patches);
     timing.patchValidateMs = Math.round(performance.now() - validateStart);
@@ -253,13 +326,13 @@ export function applyPatchesSafely(patches) {
 
 // 取当前 iframe body 的 HTML（用于回传后端持久化 / 作为下次上下文）
 export function getCurrentHtml() {
-  const doc = iframe().contentDocument;
-  return doc?.body ? doc.body.innerHTML : '';
+  const frame = iframe();
+  return frame ? extractBodyHtmlFromDocument(frame.srcdoc || '') : '';
 }
 
 export function clearStage() {
-  const doc = iframe().contentDocument;
-  doc.open(); doc.write(''); doc.close();
+  const frame = iframe();
+  if (frame) frame.srcdoc = '';
 }
 
 export function getCapabilities() {
