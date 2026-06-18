@@ -298,6 +298,25 @@ export function parseHybridOutput(raw, currentNode) {
     }
   }
 
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return {
+      ok: false,
+      error: '模型输出 JSON 顶层非对象（待修复 bug）：必须返回单个决策对象。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的 JSON 顶层不是决策对象',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
+
   // === 鲁棒性：修复模型偶发损坏的字段名 ===
   const repairResult = fuzzyRepairKeys(obj);
   let { fixed, dirty } = repairResult;
