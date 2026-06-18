@@ -6,7 +6,7 @@ import { buildMessages, parseHybridOutput } from './intent.js';
 import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
-import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert } from './memory.js';
+import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert, scoreAssetQuality } from './memory.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
@@ -57,7 +57,7 @@ function formatReusableAssetContextBlock(assets = []) {
   ];
   for (const [idx, asset] of list.entries()) {
     lines.push(
-      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} url=${asset.url}`
+      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} qualityScore=${asset?.quality?.score || 0} qualityUse=${asset?.quality?.components?.use || 0} qualityCoverage=${asset?.quality?.components?.coverage || 0} qualityRecency=${asset?.quality?.components?.recency || 0} url=${asset.url}`
     );
   }
   return lines.join('\n');
@@ -75,8 +75,13 @@ function rankReusableAssets(assets = []) {
   const scopeRank = { current: 0, related: 1 };
   return (Array.isArray(assets) ? assets : [])
     .filter(isReusableAssetCandidate)
+    .map((asset) => ({
+      ...asset,
+      quality: scoreAssetQuality(asset),
+    }))
     .sort((a, b) => (
       (scopeRank[a.scope] ?? 9) - (scopeRank[b.scope] ?? 9)
+      || (b.quality?.score || 0) - (a.quality?.score || 0)
       || (b.useCount || 0) - (a.useCount || 0)
       || String(a.url).localeCompare(String(b.url))
     ));
