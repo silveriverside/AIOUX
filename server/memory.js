@@ -21,6 +21,28 @@ function hashUrl(url) {
   return `a_${h.toString(36)}`;
 }
 
+function ensureAssetRecord(url, { type = null } = {}) {
+  const key = hashUrl(url);
+  const now = Date.now();
+  const rec = memory.assets[key] || {
+    assetKey: key,
+    url,
+    type,
+    usedByNodes: [],
+    useCount: 0,
+    issueCount: 0,
+    lastIssueAt: null,
+    revertCostCount: 0,
+    createdAt: now,
+  };
+  rec.type = type || rec.type || null;
+  if (typeof rec.issueCount !== 'number') rec.issueCount = 0;
+  if (typeof rec.revertCostCount !== 'number') rec.revertCostCount = 0;
+  if (!Array.isArray(rec.usedByNodes)) rec.usedByNodes = [];
+  memory.assets[key] = rec;
+  return rec;
+}
+
 export function initMemory() {
   if (loaded) return;
   memory = loadMemoryFile();
@@ -112,6 +134,12 @@ export function recordRevert({ nodeId, variantId = null, traceId = null } = {}) 
   const prev = memory.pages[nodeId];
   const vId = variantId || prev?.variantId || null;
   touchPage(nodeId || 'main', { revertCount: (prev?.revertCount || 0) + 1 });
+  for (const asset of Object.values(memory.assets)) {
+    if ((asset.usedByNodes || []).includes(nodeId)) {
+      asset.revertCostCount = Number(asset.revertCostCount || 0) + 1;
+      asset.updatedAt = Date.now();
+    }
+  }
   if (vId) {
     memory.preferences.variantReverts[vId] = (memory.preferences.variantReverts[vId] || 0) + 1;
   }
@@ -129,17 +157,29 @@ export function recordAssetUsage({ nodeId, assets = [] } = {}) {
       pushEvent('asset_rejected', { nodeId, url: url || null });
       continue;
     }
-    const key = hashUrl(url);
     const now = Date.now();
-    const rec = memory.assets[key] || { assetKey: key, url, type: asset.type || null, usedByNodes: [], useCount: 0, createdAt: now };
+    const rec = ensureAssetRecord(url, { type: asset.type || null });
     rec.useCount += 1;
-    rec.type = asset.type || rec.type;
     if (nodeId && !rec.usedByNodes.includes(nodeId)) rec.usedByNodes.push(nodeId);
     rec.updatedAt = now;
     rec.lastUsedAt = now;
-    memory.assets[key] = rec;
   }
   return enqueuePersist();
+}
+
+export function recordAssetIssueSignal({ url, type = null, traceId = null } = {}) {
+  ensureLoaded();
+  if (!isAllowedAssetUrl(url)) {
+    pushEvent('asset_issue_rejected', { url: url || null, traceId });
+    return Promise.resolve(false);
+  }
+  const now = Date.now();
+  const rec = ensureAssetRecord(url, { type });
+  rec.issueCount += 1;
+  rec.lastIssueAt = now;
+  rec.updatedAt = now;
+  pushEvent('asset_issue', { url, traceId });
+  return enqueuePersist().then(() => true);
 }
 
 function round3(value) {

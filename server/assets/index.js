@@ -2,6 +2,7 @@
 // 核心原则：失败绝不伪装成功；降级显式 degraded:true + issueId，并记录待修复问题。
 import { performance } from 'node:perf_hooks';
 import { isAllowedAssetUrl } from '../presetRegistry.js';
+import { recordAssetIssueSignal } from '../memory.js';
 import {
   buildText2ImageUrl,
   buildUnsplashKeywordUrl,
@@ -152,6 +153,7 @@ export async function resolveAsset({ type, keywords = [], opts = {} } = {}) {
       fallbackUsed: true,
       traceId: opts.traceId,
     });
+    await recordAssetIssueSignal({ url: pick.url, type, traceId: opts.traceId });
     return {
       url: PLACEHOLDER_SVG,
       type,

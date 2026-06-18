@@ -98,6 +98,29 @@ test('recordAssetUsage 记录素材最近使用时间质量信号', async () => 
   assert.equal(second.useCount, 2);
 });
 
+test('recordAssetIssueSignal 会把素材失效次数与最近失败时间写回到 memory.assets', async () => {
+  await memory.resetMemory();
+  await memory.recordAssetIssueSignal({
+    url: 'https://images.unsplash.com/broken-risk.jpg',
+    type: 'image',
+  });
+  const firstSnap = memory.getMemorySnapshot();
+  const first = Object.values(firstSnap.assets)[0];
+  assert.equal(first.url, 'https://images.unsplash.com/broken-risk.jpg');
+  assert.equal(first.issueCount, 1);
+  assert.equal(typeof first.lastIssueAt, 'number');
+  assert.equal(first.revertCostCount, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await memory.recordAssetIssueSignal({
+    url: 'https://images.unsplash.com/broken-risk.jpg',
+    type: 'image',
+  });
+  const second = Object.values(memory.getMemorySnapshot().assets)[0];
+  assert.equal(second.issueCount, 2);
+  assert.ok(second.lastIssueAt >= first.lastIssueAt);
+});
+
 test('scoreAssetQuality 基于使用次数、节点覆盖和最近使用时间输出可解释分数', () => {
   const now = Date.UTC(2026, 0, 31);
   const recent = memory.scoreAssetQuality({
@@ -133,4 +156,26 @@ test('recordRevert 累加 revertCount 与 variantReverts', async () => {
   assert.equal(page.revertCount, 1);
   const snap = memory.getMemorySnapshot();
   assert.equal(snap.preferences.variantReverts['card_browser__builtin'], 1);
+});
+
+test('recordRevert 会给当前节点关联素材累加 revertCostCount 代理信号', async () => {
+  await memory.resetMemory();
+  await memory.recordAssetUsage({
+    nodeId: 'list',
+    assets: [
+      { url: 'https://images.unsplash.com/revert-a.jpg', type: 'image' },
+      { url: 'https://images.unsplash.com/revert-b.jpg', type: 'image' },
+    ],
+  });
+  await memory.recordAssetUsage({
+    nodeId: 'other',
+    assets: [{ url: 'https://images.unsplash.com/other.jpg', type: 'image' }],
+  });
+
+  await memory.recordRevert({ nodeId: 'list', variantId: 'card_browser__builtin' });
+  const snap = memory.getMemorySnapshot();
+  const byUrl = Object.fromEntries(Object.values(snap.assets).map((asset) => [asset.url, asset]));
+  assert.equal(byUrl['https://images.unsplash.com/revert-a.jpg'].revertCostCount, 1);
+  assert.equal(byUrl['https://images.unsplash.com/revert-b.jpg'].revertCostCount, 1);
+  assert.equal(byUrl['https://images.unsplash.com/other.jpg'].revertCostCount, 0);
 });
