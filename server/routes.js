@@ -11,6 +11,12 @@ import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
 const REUSABLE_ASSET_PROMPT_LIMIT = 3;
+export const REUSABLE_ASSET_RANKING_WEIGHTS = Object.freeze({
+  qualityScore: 1,
+  use: 0.1,
+  coverage: 0.35,
+  recency: 0.75,
+});
 
 function buildAssetRequests(interaction, currentNode, traceId = null) {
   const keywords = [
@@ -57,7 +63,7 @@ function formatReusableAssetContextBlock(assets = []) {
   ];
   for (const [idx, asset] of list.entries()) {
     lines.push(
-      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} qualityScore=${asset?.quality?.score || 0} qualityUse=${asset?.quality?.components?.use || 0} qualityCoverage=${asset?.quality?.components?.coverage || 0} qualityRecency=${asset?.quality?.components?.recency || 0} url=${asset.url}`
+      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} weightedScore=${asset?.weightedScore || 0} qualityScore=${asset?.quality?.score || 0} qualityUse=${asset?.quality?.components?.use || 0} qualityCoverage=${asset?.quality?.components?.coverage || 0} qualityRecency=${asset?.quality?.components?.recency || 0} url=${asset.url}`
     );
   }
   return lines.join('\n');
@@ -71,16 +77,31 @@ function isReusableAssetCandidate(asset) {
   return /^https?:\/\//i.test(String(asset?.url || '').trim());
 }
 
-function rankReusableAssets(assets = []) {
+export function computeReusableAssetWeightedScore(asset = {}, weights = REUSABLE_ASSET_RANKING_WEIGHTS) {
+  const quality = asset?.quality || scoreAssetQuality(asset);
+  const components = quality?.components || {};
+  const total = (quality?.score || 0) * (weights.qualityScore || 0)
+    + (components.use || 0) * (weights.use || 0)
+    + (components.coverage || 0) * (weights.coverage || 0)
+    + (components.recency || 0) * (weights.recency || 0);
+  return Math.round(total * 1000) / 1000;
+}
+
+export function rankReusableAssets(assets = []) {
   const scopeRank = { current: 0, related: 1 };
   return (Array.isArray(assets) ? assets : [])
     .filter(isReusableAssetCandidate)
-    .map((asset) => ({
-      ...asset,
-      quality: scoreAssetQuality(asset),
-    }))
+    .map((asset) => {
+      const quality = asset?.quality || scoreAssetQuality(asset);
+      return {
+        ...asset,
+        quality,
+        weightedScore: computeReusableAssetWeightedScore({ ...asset, quality }),
+      };
+    })
     .sort((a, b) => (
       (scopeRank[a.scope] ?? 9) - (scopeRank[b.scope] ?? 9)
+      || (b.weightedScore || 0) - (a.weightedScore || 0)
       || (b.quality?.score || 0) - (a.quality?.score || 0)
       || (b.useCount || 0) - (a.useCount || 0)
       || String(a.url).localeCompare(String(b.url))

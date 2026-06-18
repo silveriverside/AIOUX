@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { buildInteractTimingPayload, buildMessagesWithAssets } = await import('./routes.js');
+const {
+  REUSABLE_ASSET_RANKING_WEIGHTS,
+  buildInteractTimingPayload,
+  buildMessagesWithAssets,
+  computeReusableAssetWeightedScore,
+  rankReusableAssets,
+} = await import('./routes.js');
 
 test('资产解析成功后会把素材上下文追加到 prompt，且保留现有 observe 回填', async () => {
   const observe = {};
@@ -273,6 +279,84 @@ test('复用素材统计会区分召回数量与实际注入 prompt 数量', asy
   assert.match(userText, /current-a\.jpg/);
   assert.match(userText, /related-a\.jpg/);
   assert.doesNotMatch(userText, /related-b\.jpg/);
+});
+
+test('综合分会让高覆盖低使用素材前移', () => {
+  const highCoverage = {
+    url: 'https://images.unsplash.com/high-coverage.jpg',
+    scope: 'current',
+    useCount: 1,
+    quality: {
+      score: 5.8,
+      components: { use: 1, coverage: 4, recency: 0.8 },
+    },
+  };
+  const highUse = {
+    url: 'https://images.unsplash.com/high-use.jpg',
+    scope: 'current',
+    useCount: 5,
+    quality: {
+      score: 6,
+      components: { use: 5, coverage: 1, recency: 0 },
+    },
+  };
+
+  assert.ok(REUSABLE_ASSET_RANKING_WEIGHTS.coverage > REUSABLE_ASSET_RANKING_WEIGHTS.use);
+  assert.ok(computeReusableAssetWeightedScore(highCoverage) > computeReusableAssetWeightedScore(highUse));
+  assert.deepEqual(rankReusableAssets([highUse, highCoverage]).map((asset) => asset.url), [
+    'https://images.unsplash.com/high-coverage.jpg',
+    'https://images.unsplash.com/high-use.jpg',
+  ]);
+});
+
+test('综合分会对低时效素材施加明确惩罚', () => {
+  const recent = {
+    url: 'https://images.unsplash.com/recent.jpg',
+    scope: 'current',
+    useCount: 3,
+    quality: {
+      score: 5.6,
+      components: { use: 3, coverage: 2, recency: 0.6 },
+    },
+  };
+  const stale = {
+    url: 'https://images.unsplash.com/stale.jpg',
+    scope: 'current',
+    useCount: 3,
+    quality: {
+      score: 5.1,
+      components: { use: 3, coverage: 2, recency: 0.1 },
+    },
+  };
+
+  assert.ok(computeReusableAssetWeightedScore(recent) > computeReusableAssetWeightedScore(stale));
+});
+
+test('综合分接近或同分时继续按 url 稳定排序', () => {
+  const first = {
+    url: 'https://images.unsplash.com/a.jpg',
+    scope: 'current',
+    useCount: 2,
+    quality: {
+      score: 4.5,
+      components: { use: 2, coverage: 2, recency: 0.5 },
+    },
+  };
+  const second = {
+    url: 'https://images.unsplash.com/b.jpg',
+    scope: 'current',
+    useCount: 2,
+    quality: {
+      score: 4.5,
+      components: { use: 2, coverage: 2, recency: 0.5 },
+    },
+  };
+
+  assert.equal(computeReusableAssetWeightedScore(first), computeReusableAssetWeightedScore(second));
+  assert.deepEqual(rankReusableAssets([second, first]).map((asset) => asset.url), [
+    'https://images.unsplash.com/a.jpg',
+    'https://images.unsplash.com/b.jpg',
+  ]);
 });
 
 test('交互 timing 日志摘要会在顶层暴露复用素材统计', () => {
