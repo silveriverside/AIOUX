@@ -84,3 +84,4 @@
 - 2026-06-16：素材质量离线评估器 JSON 报告新增 `summary.topScore` 与 `summary.averageScore`，便于快速观察整体质量分布。
 - 2026-06-16：素材质量离线评估器文本模式新增 `averageScore`，无需 JSON 解析即可查看整体平均质量分。
 - 2026-06-18：模型 JSON 解析新增顶层类型门禁；当模型返回合法 JSON 但顶层不是决策对象时显式 `ok=false` 且阻止落地，避免数组/字符串被误当字段损坏修复。
+- 2026-06-18：复用素材排序已接入 `scoreAssetQuality(...)` 与可配置综合分权重，默认按 `scope -> weightedScore -> qualityScore -> useCount` 排序，并在调试文本中暴露 `weightedScore/qualityScore/use/coverage/recency`。
