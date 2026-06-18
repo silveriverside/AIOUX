@@ -66,6 +66,24 @@ test('截断的模型输出修复后不落地（shouldUpdate=false + 显式 erro
   assert.ok(result.error && result.error.includes('截断'), '应给出明确的截断错误说明');
 });
 
+test('合法 JSON 但顶层不是对象时显式阻止落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify([
+      {
+        shouldUpdate: true,
+        action: 'create',
+        nodeId: 'array_page',
+      },
+    ]),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('非对象'), '应明确说明模型 JSON 顶层类型异常');
+});
+
 test('正常完整输出不受截断保护影响（ok=true 且可落地）', () => {
   const raw = JSON.stringify({
     shouldUpdate: true,
