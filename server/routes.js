@@ -17,6 +17,11 @@ export const REUSABLE_ASSET_RANKING_WEIGHTS = Object.freeze({
   coverage: 0.35,
   recency: 0.75,
 });
+export const REUSABLE_ASSET_RISK_WEIGHTS = Object.freeze({
+  issueCount: 1.2,
+  recentIssue: 0.9,
+  revertCostCount: 0.8,
+});
 
 function buildAssetRequests(interaction, currentNode, traceId = null) {
   const keywords = [
@@ -63,7 +68,7 @@ function formatReusableAssetContextBlock(assets = []) {
   ];
   for (const [idx, asset] of list.entries()) {
     lines.push(
-      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} weightedScore=${asset?.weightedScore || 0} qualityScore=${asset?.quality?.score || 0} qualityUse=${asset?.quality?.components?.use || 0} qualityCoverage=${asset?.quality?.components?.coverage || 0} qualityRecency=${asset?.quality?.components?.recency || 0} url=${asset.url}`
+      `${idx + 1}. scope=${asset?.scope || 'current'} nodeId=${asset?.nodeId || 'unknown'} type=${asset?.type || 'unknown'} useCount=${asset?.useCount || 0} weightedScore=${asset?.weightedScore || 0} riskPenalty=${asset?.riskPenalty || 0} qualityScore=${asset?.quality?.score || 0} qualityUse=${asset?.quality?.components?.use || 0} qualityCoverage=${asset?.quality?.components?.coverage || 0} qualityRecency=${asset?.quality?.components?.recency || 0} issueCount=${asset?.issueCount || 0} revertCostCount=${asset?.revertCostCount || 0} url=${asset.url}`
     );
   }
   return lines.join('\n');
@@ -83,7 +88,21 @@ export function computeReusableAssetWeightedScore(asset = {}, weights = REUSABLE
   const total = (quality?.score || 0) * (weights.qualityScore || 0)
     + (components.use || 0) * (weights.use || 0)
     + (components.coverage || 0) * (weights.coverage || 0)
-    + (components.recency || 0) * (weights.recency || 0);
+    + (components.recency || 0) * (weights.recency || 0)
+    - computeReusableAssetRiskPenaltyScore(asset);
+  return Math.round(total * 1000) / 1000;
+}
+
+export function computeReusableAssetRiskPenaltyScore(
+  asset = {},
+  { now = Date.now(), weights = REUSABLE_ASSET_RISK_WEIGHTS } = {}
+) {
+  const lastIssueAt = Number(asset?.lastIssueAt || 0);
+  const issueAgeDays = lastIssueAt > 0 ? Math.max(0, (now - lastIssueAt) / (24 * 60 * 60 * 1000)) : Infinity;
+  const recentIssue = Number.isFinite(issueAgeDays) ? Math.max(0, 1 - issueAgeDays / 30) : 0;
+  const total = Number(asset?.issueCount || 0) * (weights.issueCount || 0)
+    + recentIssue * (weights.recentIssue || 0)
+    + Number(asset?.revertCostCount || 0) * (weights.revertCostCount || 0);
   return Math.round(total * 1000) / 1000;
 }
 
@@ -96,6 +115,7 @@ export function rankReusableAssets(assets = []) {
       return {
         ...asset,
         quality,
+        riskPenalty: computeReusableAssetRiskPenaltyScore(asset),
         weightedScore: computeReusableAssetWeightedScore({ ...asset, quality }),
       };
     })

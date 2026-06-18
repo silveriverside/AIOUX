@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 const {
   REUSABLE_ASSET_RANKING_WEIGHTS,
+  REUSABLE_ASSET_RISK_WEIGHTS,
   buildInteractTimingPayload,
   buildMessagesWithAssets,
+  computeReusableAssetRiskPenaltyScore,
   computeReusableAssetWeightedScore,
   rankReusableAssets,
 } = await import('./routes.js');
@@ -356,6 +358,75 @@ test('综合分接近或同分时继续按 url 稳定排序', () => {
   assert.deepEqual(rankReusableAssets([second, first]).map((asset) => asset.url), [
     'https://images.unsplash.com/a.jpg',
     'https://images.unsplash.com/b.jpg',
+  ]);
+});
+
+test('风险惩罚会让高 issueCount 素材降权', () => {
+  const clean = {
+    url: 'https://images.unsplash.com/clean.jpg',
+    scope: 'current',
+    useCount: 3,
+    quality: {
+      score: 5.6,
+      components: { use: 3, coverage: 2, recency: 0.6 },
+    },
+    issueCount: 0,
+    revertCostCount: 0,
+  };
+  const risky = {
+    ...clean,
+    url: 'https://images.unsplash.com/risky.jpg',
+    issueCount: 3,
+  };
+
+  assert.ok(REUSABLE_ASSET_RISK_WEIGHTS.issueCount > 0);
+  assert.ok(computeReusableAssetRiskPenaltyScore(risky) > computeReusableAssetRiskPenaltyScore(clean));
+  assert.ok(computeReusableAssetWeightedScore(clean) > computeReusableAssetWeightedScore(risky));
+});
+
+test('风险惩罚会对近期失败素材施加更高降权', () => {
+  const now = Date.now();
+  const recentIssue = {
+    url: 'https://images.unsplash.com/recent-issue.jpg',
+    scope: 'current',
+    quality: {
+      score: 5.6,
+      components: { use: 3, coverage: 2, recency: 0.6 },
+    },
+    issueCount: 1,
+    lastIssueAt: now - 1 * 24 * 60 * 60 * 1000,
+    revertCostCount: 0,
+  };
+  const staleIssue = {
+    ...recentIssue,
+    url: 'https://images.unsplash.com/stale-issue.jpg',
+    lastIssueAt: now - 90 * 24 * 60 * 60 * 1000,
+  };
+
+  assert.ok(computeReusableAssetRiskPenaltyScore(recentIssue, { now }) > computeReusableAssetRiskPenaltyScore(staleIssue, { now }));
+});
+
+test('风险惩罚会让高 revertCostCount 素材稳定后移', () => {
+  const lowRisk = {
+    url: 'https://images.unsplash.com/low-risk.jpg',
+    scope: 'current',
+    quality: {
+      score: 5.6,
+      components: { use: 3, coverage: 2, recency: 0.6 },
+    },
+    issueCount: 0,
+    revertCostCount: 0,
+  };
+  const highRisk = {
+    ...lowRisk,
+    url: 'https://images.unsplash.com/high-risk.jpg',
+    revertCostCount: 4,
+  };
+
+  assert.ok(computeReusableAssetRiskPenaltyScore(highRisk) > computeReusableAssetRiskPenaltyScore(lowRisk));
+  assert.deepEqual(rankReusableAssets([highRisk, lowRisk]).map((asset) => asset.url), [
+    'https://images.unsplash.com/low-risk.jpg',
+    'https://images.unsplash.com/high-risk.jpg',
   ]);
 });
 
