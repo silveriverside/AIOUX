@@ -26,7 +26,7 @@
 ## 3. 当前风险清单
 
 - P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言，启发式修复不能覆盖所有情况。
-- P0：sandbox iframe 同时允许 `allow-scripts` 与 `allow-same-origin`，生成 HTML 又允许内联脚本，隔离边界仍需安全评估。
+- P0：sandbox iframe 默认已移除 `allow-same-origin`，但生成 HTML 仍允许内联脚本，iframe bridge 仍使用 `postMessage('*')`，父级消息监听缺少来源/协议校验；这些是待继续收敛的安全边界，不应视为正常运行假设。
 - P1：意图路由仍以启发式为主，已有基础可回放样本集和准确率输出，但样本规模仍偏小，需要继续扩展真实场景。
 - P1：素材复用已有观测字段、最近使用时间信号和基础离线质量分，但还没有接入排序策略，也缺少失效、回退、使用结果等综合质量因子。
 - P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页。
@@ -87,3 +87,4 @@
 - 2026-06-18：复用素材排序已接入 `scoreAssetQuality(...)` 与可配置综合分权重，默认按 `scope -> weightedScore -> qualityScore -> useCount` 排序，并在调试文本中暴露 `weightedScore/qualityScore/use/coverage/recency`。
 - 2026-06-18：复用素材排序新增风险惩罚分，基于 `issueCount`、近期 `lastIssueAt` 与 `revertCostCount` 对高风险素材降权；`revertCostCount` 是页面级回退代理信号，不伪装成素材根因。
 - 2026-06-18：意图路由评测集从 22 条扩充到 42 条，新增热点 target、文本本地控制、细化、新建、generic 兜底和 caps 缺失等边界样本，离线评估保持 42/42 通过。
+- 2026-06-18：补强 sandbox 隔离回归测试，固定默认权限不含 `allow-same-origin`、危险组合乱序/重复仍被拒绝、舞台渲染与当前 HTML 读取均只依赖 `srcdoc` 而不访问 iframe 同源 DOM；同时明确 `postMessage('*')` 与消息来源校验仍是后续需解决的安全问题。
