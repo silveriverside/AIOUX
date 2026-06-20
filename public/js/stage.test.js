@@ -7,6 +7,8 @@ import {
   extractBodyHtmlFromDocument,
   renderFull,
   getCurrentHtml,
+  getCurrentBridgeNonce,
+  isTrustedFrameMessage,
 } from './stage.js';
 
 test('默认 iframe sandbox 不包含 allow-same-origin', () => {
@@ -66,6 +68,41 @@ test('getCurrentHtml 从 srcdoc 提取 body 内容而不读取同源 DOM', () =>
 
   try {
     assert.equal(getCurrentHtml(), '<section id="safe">ok</section>');
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('iframe bridge 消息必须同时匹配 source 与 nonce', () => {
+  const previousDocument = globalThis.document;
+  const contentWindow = {};
+  const frame = {
+    attributes: {},
+    srcdoc: '',
+    contentWindow,
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+  globalThis.document = { getElementById: () => frame };
+
+  try {
+    renderFull('<main>nonce</main>');
+    const nonce = getCurrentBridgeNonce();
+    assert.ok(nonce, 'renderFull 应生成 bridge nonce');
+
+    assert.equal(isTrustedFrameMessage({
+      source: {},
+      data: { __aioux: true, kind: 'frame-capabilities', nonce },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce: 'wrong' },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce },
+    }, { kind: 'frame-capabilities' }), true);
   } finally {
     globalThis.document = previousDocument;
   }

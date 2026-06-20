@@ -6,6 +6,7 @@ let currentCapabilities = {
   refinableAspects: [],
   explorableTargets: [],
 };
+let currentBridgeNonce = null;
 const DEFAULT_SANDBOX_TOKENS = ['allow-scripts', 'allow-popups'];
 const FORBIDDEN_SANDBOX_COMBINATIONS = [
   ['allow-scripts', 'allow-same-origin'],
@@ -22,15 +23,42 @@ function normalizeCapabilities(raw) {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (e) => {
+    if (!isTrustedFrameMessage(e, { kind: 'frame-capabilities' })) return;
     const d = e.data;
-    if (!d?.__aioux || d.kind !== 'frame-capabilities') return;
     currentCapabilities = normalizeCapabilities(d.capabilities);
   });
 }
 
-const BRIDGE_SCRIPT = `<script>
+export function createBridgeNonce() {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  if (cryptoApi?.getRandomValues) {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  throw new Error('安全随机数不可用，无法建立 sandbox bridge nonce');
+}
+
+export function getCurrentBridgeNonce() {
+  return currentBridgeNonce;
+}
+
+export function isTrustedFrameMessage(event, { kind = null } = {}) {
+  const data = event?.data;
+  if (!data?.__aioux) return false;
+  if (kind && data.kind !== kind) return false;
+  const frame = iframe();
+  if (!frame?.contentWindow) return false;
+  if (event.source !== frame.contentWindow) return false;
+  if (!currentBridgeNonce || data.nonce !== currentBridgeNonce) return false;
+  return true;
+}
+
+function buildBridgeScript(nonce) {
+  return `<script>
 // 把可探索元素的点击/坐标转发给父窗口，由 pointer 模块统一处理
 (function(){
+  var AIOUX_BRIDGE_NONCE = ${JSON.stringify(nonce)};
   function findExplorable(el){ while(el && el!==document.body){ if(el.dataset && el.dataset.explorable) return el; el=el.parentElement; } return null; }
   function inferCapabilities(){
     var declared = window.__AIOUX_CAPABILITIES__ || {};
@@ -83,19 +111,21 @@ const BRIDGE_SCRIPT = `<script>
   }
   function reportCapabilities(){
     try {
-      parent.postMessage({ __aioux:true, kind:'frame-capabilities', capabilities: inferCapabilities() }, '*');
+      parent.postMessage({ __aioux:true, kind:'frame-capabilities', nonce:AIOUX_BRIDGE_NONCE, capabilities: inferCapabilities() }, '*');
     } catch(e) {}
   }
   document.addEventListener('pointerdown', function(e){
     var ex = findExplorable(e.target);
     parent.postMessage({ __aioux:true, kind:'frame-pointer', phase:'down',
       x:e.clientX, y:e.clientY, w:innerWidth, h:innerHeight,
+      nonce:AIOUX_BRIDGE_NONCE,
       label: ex ? (ex.dataset.label||ex.textContent.slice(0,40)) : null }, '*');
   }, true);
   document.addEventListener('pointerup', function(e){
     var ex = findExplorable(e.target);
     parent.postMessage({ __aioux:true, kind:'frame-pointer', phase:'up',
       x:e.clientX, y:e.clientY, w:innerWidth, h:innerHeight,
+      nonce:AIOUX_BRIDGE_NONCE,
       label: ex ? (ex.dataset.label||ex.textContent.slice(0,40)) : null }, '*');
   }, true);
   if (document.readyState === 'loading') {
@@ -105,6 +135,7 @@ const BRIDGE_SCRIPT = `<script>
   setTimeout(reportCapabilities, 300);
 })();
 <\/script>`;
+}
 
 export function getSafeSandboxValue(input = DEFAULT_SANDBOX_TOKENS.join(' ')) {
   const tokens = String(input)
@@ -120,7 +151,7 @@ export function getSafeSandboxValue(input = DEFAULT_SANDBOX_TOKENS.join(' ')) {
 }
 
 // 包裹模型生成的片段为完整文档，注入基础样式与点击转发脚本
-function wrapDocument(fragment) {
+function wrapDocument(fragment, nonce = currentBridgeNonce) {
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
@@ -128,7 +159,7 @@ function wrapDocument(fragment) {
   [data-explorable]{cursor:pointer;}
   [data-explorable]:hover{outline:2px solid rgba(94,234,212,.6);outline-offset:2px;}
 </style>
-${BRIDGE_SCRIPT}</head>
+${buildBridgeScript(nonce)}</head>
 <body>${fragment}</body></html>`;
 }
 
@@ -189,8 +220,9 @@ export function renderFull(html) {
   currentCapabilities = normalizeCapabilities(null);
   const frame = iframe();
   if (!frame) return;
+  currentBridgeNonce = createBridgeNonce();
   frame.setAttribute('sandbox', getSafeSandboxValue());
-  frame.srcdoc = wrapDocument(html);
+  frame.srcdoc = wrapDocument(html, currentBridgeNonce);
 }
 
 const ALLOWED_PATCH_ACTIONS = new Set(['append', 'replace', 'remove']);
@@ -333,6 +365,7 @@ export function getCurrentHtml() {
 export function clearStage() {
   const frame = iframe();
   if (frame) frame.srcdoc = '';
+  currentBridgeNonce = null;
 }
 
 export function getCapabilities() {

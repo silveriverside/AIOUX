@@ -7,9 +7,15 @@
 //  - 选区模式(rect/lasso)：按住 Shift=框选 / Alt=圈选 时，overlay canvas 接管事件并绘制选区。
 // 归一化输出 InteractionEvent 交给 emit 回调。
 
+import { isTrustedFrameMessage } from '../stage.js';
+
 const LONG_PRESS_MS = 600;
 const SWIPE_MIN = 0.05; // 归一化距离
 const LASSO_MIN_POINTS = 8;
+
+export function isTrustedPointerMessage(event) {
+  return isTrustedFrameMessage(event, { kind: 'frame-pointer' });
+}
 
 export function initPointer(emit) {
   const wrap = document.getElementById('stage-wrap');
@@ -36,8 +42,8 @@ export function initPointer(emit) {
   // ===== tap / longpress / swipe：来自 iframe 的转发消息 =====
   let downInfo = null, longTimer = null;
   window.addEventListener('message', (e) => {
+    if (!isTrustedPointerMessage(e)) return;
     const d = e.data;
-    if (!d?.__aioux || d.kind !== 'frame-pointer') return;
     const nx = d.x / d.w, ny = d.y / d.h;
     if (d.phase === 'down') {
       downInfo = { x: nx, y: ny, t: Date.now(), label: d.label };
