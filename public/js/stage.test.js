@@ -101,8 +101,53 @@ test('iframe bridge 消息必须同时匹配 source 与 nonce', () => {
     }, { kind: 'frame-capabilities' }), false);
     assert.equal(isTrustedFrameMessage({
       source: contentWindow,
-      data: { __aioux: true, kind: 'frame-capabilities', nonce },
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: {} },
     }, { kind: 'frame-capabilities' }), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('iframe bridge 拒绝未知 kind 与畸形 capabilities payload', () => {
+  const previousDocument = globalThis.document;
+  const contentWindow = {};
+  const frame = {
+    attributes: {},
+    srcdoc: '',
+    contentWindow,
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+  globalThis.document = { getElementById: () => frame };
+
+  try {
+    renderFull('<main>payload</main>');
+    const nonce = getCurrentBridgeNonce();
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-debug', nonce },
+    }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: null },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: { nativeInteractions: 'tap' } },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: { sceneType: 'admin_panel' } },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: { nativeInteractions: [123] } },
+    }, { kind: 'frame-capabilities' }), false);
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: { explorableTargets: Array.from({ length: 33 }, (_, index) => `target-${index}`) } },
+    }, { kind: 'frame-capabilities' }), false);
   } finally {
     globalThis.document = previousDocument;
   }

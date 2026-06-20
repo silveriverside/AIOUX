@@ -11,6 +11,11 @@ const DEFAULT_SANDBOX_TOKENS = ['allow-scripts', 'allow-popups'];
 const FORBIDDEN_SANDBOX_COMBINATIONS = [
   ['allow-scripts', 'allow-same-origin'],
 ];
+const ALLOWED_FRAME_MESSAGE_KINDS = new Set(['frame-capabilities', 'frame-pointer']);
+const ALLOWED_SCENE_TYPES = new Set(['generic', 'immersive_media', 'card_browser', 'interactive_2d', 'interactive_3d']);
+const POINTER_PHASES = new Set(['down', 'up']);
+const BRIDGE_ARRAY_LIMIT = 32;
+const BRIDGE_TEXT_LIMIT = 80;
 
 function normalizeCapabilities(raw) {
   return {
@@ -46,12 +51,40 @@ export function getCurrentBridgeNonce() {
 export function isTrustedFrameMessage(event, { kind = null } = {}) {
   const data = event?.data;
   if (!data?.__aioux) return false;
+  if (!ALLOWED_FRAME_MESSAGE_KINDS.has(data.kind)) return false;
   if (kind && data.kind !== kind) return false;
   const frame = iframe();
   if (!frame?.contentWindow) return false;
   if (event.source !== frame.contentWindow) return false;
   if (!currentBridgeNonce || data.nonce !== currentBridgeNonce) return false;
-  return true;
+  return validateFrameMessagePayload(data);
+}
+
+export function validateFrameMessagePayload(data) {
+  if (data?.kind === 'frame-capabilities') {
+    const capabilities = data.capabilities;
+    if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) return false;
+    if (capabilities.sceneType !== undefined && !ALLOWED_SCENE_TYPES.has(capabilities.sceneType)) return false;
+    for (const field of ['nativeInteractions', 'refinableAspects', 'explorableTargets']) {
+      if (capabilities[field] !== undefined && !Array.isArray(capabilities[field])) return false;
+      if (Array.isArray(capabilities[field])) {
+        if (capabilities[field].length > BRIDGE_ARRAY_LIMIT) return false;
+        if (!capabilities[field].every((item) => typeof item === 'string' && item.length <= BRIDGE_TEXT_LIMIT)) return false;
+      }
+    }
+    return true;
+  }
+  if (data?.kind === 'frame-pointer') {
+    if (!POINTER_PHASES.has(data.phase)) return false;
+    for (const field of ['x', 'y', 'w', 'h']) {
+      if (!Number.isFinite(data[field])) return false;
+    }
+    if (data.w <= 0 || data.h <= 0) return false;
+    if (data.x < 0 || data.x > data.w || data.y < 0 || data.y > data.h) return false;
+    if (data.label !== undefined && data.label !== null && (typeof data.label !== 'string' || data.label.length > BRIDGE_TEXT_LIMIT)) return false;
+    return true;
+  }
+  return false;
 }
 
 function buildBridgeScript(nonce) {
