@@ -186,12 +186,36 @@ async function testLocalNative3d(page) {
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => !!document.querySelector('#status-text')?.textContent);
-  await page.evaluate(() => {
+
+  await page.evaluate(async () => {
+    const stage = await import('/js/stage.js');
+    stage.renderFull(`
+      <script>
+        window.__AIOUX_CAPABILITIES__ = {
+          sceneType: 'interactive_3d',
+          nativeInteractions: ['tap_background', 'swipe', 'drag_rotate']
+        };
+      <\/script>
+      <main style="width:100vw;height:100vh;display:grid;place-items:center;background:#07111f;color:white">
+        <button id="tap-target" style="width:240px;height:120px">real iframe tap</button>
+      </main>
+    `);
+    document.getElementById('welcome')?.classList.add('hidden');
+  });
+  await page.waitForFunction(async () => {
+    const stage = await import('/js/stage.js');
+    return stage.getCapabilities().sceneType === 'interactive_3d';
+  });
+
+  const spoofResult = await page.evaluate(async () => {
+    const stage = await import('/js/stage.js');
+    const beforeCaps = stage.getCapabilities();
+    const beforeStatus = document.querySelector('#status-text')?.textContent || '';
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         __aioux: true,
         kind: 'frame-capabilities',
-        capabilities: { sceneType: 'interactive_3d', nativeInteractions: ['tap_background', 'swipe', 'drag_rotate'] },
+        capabilities: { sceneType: 'card_browser', nativeInteractions: ['tap_filter'] },
       },
     }));
     window.dispatchEvent(new MessageEvent('message', {
@@ -200,7 +224,19 @@ async function testLocalNative3d(page) {
     window.dispatchEvent(new MessageEvent('message', {
       data: { __aioux: true, kind: 'frame-pointer', phase: 'up', x: 100, y: 100, w: 1000, h: 1000, label: null },
     }));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return {
+      beforeCaps,
+      afterCaps: stage.getCapabilities(),
+      beforeStatus,
+      afterStatus: document.querySelector('#status-text')?.textContent || '',
+    };
   });
+
+  assert(spoofResult.afterCaps.sceneType === 'interactive_3d', `伪造 capabilities 不应改变 sceneType: ${JSON.stringify(spoofResult)}`);
+  assert(spoofResult.afterStatus === spoofResult.beforeStatus, `伪造 pointer 不应改变状态栏: ${JSON.stringify(spoofResult)}`);
+
+  await page.frameLocator('#stage').locator('#tap-target').click();
   await page.waitForTimeout(500);
   const statusText = await page.textContent('#status-text');
   const caps = await page.evaluate(async () => (await import('/js/stage.js')).getCapabilities());
@@ -208,7 +244,7 @@ async function testLocalNative3d(page) {
   assert(interactCount === 0, `3D 本地点击不应触发 /api/interact，实际 ${interactCount}`);
   assert(statusText?.includes('未触发重新生成'), `状态栏未显示本地处理结果: ${statusText}; caps=${JSON.stringify(caps)}`);
 
-  console.log('[e2e] local 3D interaction ok');
+  console.log('[e2e] sandbox bridge auth + local 3D interaction ok');
   console.log(`[e2e] status: ${statusText}`);
 }
 
