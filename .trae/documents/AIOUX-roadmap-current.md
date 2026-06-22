@@ -1,13 +1,13 @@
 # AIOUX 当前路线看板
 
-> 更新时间：2026-06-14  
+> 更新时间：2026-06-22
 > 作用：作为当前决策看板，保留 `.trae/documents/AIOUX-project-requirements-architecture-status.md` 作为完整历史账本。
 
 ## 1. 当前状态总览
 
 - 项目已具备可运行的实时生成式 UX Demo：文本交互、Page Graph、节点历史、回退、异步快照、patch sync、多模态入口和浏览器端到端脚本均已打通。
 - 阶段 A 的阻断性 bug 已基本完成；阶段 B 的素材/记忆闭环已推进到第 3.13 步。
-- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 22/22 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 129/129 通过，`GetDiagnostics` 无错误。
+- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 60/60 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 191/191 通过。
 - 当前最大风险不在基础链路，而在模型输出稳定性、安全隔离、意图路由误判和生成质量稳定性。
 
 ## 2. 已完成里程碑
@@ -27,8 +27,8 @@
 
 - P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言；当前已对顶层非对象、截断修复、缺失/污染关键字段、非法 action/mode 枚举做拒绝落地，后续仍需评估 `json_schema strict` 或两阶段生成。
 - P0：sandbox iframe 默认已移除 `allow-same-origin`，iframe bridge 消息已增加 `event.source`、nonce 与协议字段白名单校验，并补充真实浏览器 E2E 回归；内联脚本边界已有 E2E 基线（可执行但不能访问父页面 DOM 或绕过 bridge），后续是否禁用/收紧内联脚本仍需单独架构决策。
-- P1：意图路由仍以启发式为主，已有基础可回放样本集和准确率输出，但样本规模仍偏小，需要继续扩展真实场景。
-- P1：素材复用已有观测字段、最近使用时间信号和基础离线质量分，但还没有接入排序策略，也缺少失效、回退、使用结果等综合质量因子。
+- P1：意图路由仍以启发式为主，已有可回放样本集和准确率输出；样本已扩到 60 条，仍可继续朝每核心意图 20 条推进。
+- P1：素材复用排序已接入质量分、综合权重与 issue/revert 风险惩罚；后续可继续调优权重、扩大质量信号和补充使用结果评估。
 - P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页。
 - P2：snapshot job 状态仅在进程内存中，服务重启后历史 jobId 不可恢复。
 - P2：缺少操作 trace 面板，无法在前端直接查看模型决策、修复记录、素材复用和 commit。
@@ -37,7 +37,7 @@
 
 ### 4.1 低风险优先闭环
 
-- `feature/reusable-asset-quality-ranking-integration`：基于离线质量评估器结果，评估是否接入素材复用排序，并保留可回滚观测开关。
+- `feature/reusable-asset-quality-ranking-tuning`：在已接入质量分、综合权重和风险惩罚的基础上，继续调优权重与质量信号。
 - `feature/visual-quality-evaluator`：沉淀画面型、卡片型、2D/3D 场景的质量样本和自动/半自动评分。
 - `feature/intent-routing-evaluator-expanded`：继续扩展真实页面和自然语言样本，覆盖更多误判边界。
 
@@ -55,8 +55,8 @@
 
 ## 5. 当前建议立即推进
 
-- 优先做 `feature/reusable-asset-quality-ranking-integration`，把素材复用从“离线可评估”推进到“可排序调优”；接入前需先说明排序变化影响。
-- 随后扩展 `feature/intent-routing-evaluator-expanded`，补充真实页面和自然语言样本。
+- 优先继续扩展 `feature/intent-routing-evaluator-expanded`，把真实页面和自然语言样本朝每核心意图 20 条推进。
+- 随后推进 `feature/visual-quality-evaluator` 或 `feature/reusable-asset-quality-ranking-tuning`，分别收敛画面型生成质量和素材排序权重调优。
 - `json_schema strict` 和 sandbox 安全属于核心策略/架构改动，实施前需要单独说明影响并确认。
 
 ## 6. 验收基线
@@ -93,3 +93,4 @@
 - 2026-06-22：E2E 改用真实 sandbox iframe bridge 上报 capabilities 与 pointer 事件，验证父窗口伪造消息不会改变 capabilities 或触发本地交互；`npm run e2e` 与 `node --test` 均通过。
 - 2026-06-22：新增内联脚本 sandbox 边界 E2E，确认生成 HTML 内联脚本会在 iframe 内执行，但不能访问父页面 DOM；同时 bridge 拒绝非可信合成 pointer 事件，错误 nonce 与合成事件都不会改变父侧 capabilities 或状态；`npm run e2e` 与 `node --test` 均通过。
 - 2026-06-22：模型决策 JSON 解析新增关键字段门禁，缺失 `shouldUpdate`、`shouldUpdate` 类型污染、非法 `action` / `mode` 枚举、`mode=patch` 但 `patches` 非数组时均显式 `ok=false` 且阻止落地；全量 `node --test` 172/172 通过。
+- 2026-06-22：意图路由评测集从 42 条扩充到 60 条，新增本地原生交互、热点 target、文本创建/细化、generic 兜底和 caps 缺失样本；`npm run eval:intent-routing` 60/60 通过，全量 `node --test` 191/191 通过。
