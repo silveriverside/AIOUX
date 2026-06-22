@@ -148,6 +148,7 @@ function buildBridgeScript(nonce) {
     } catch(e) {}
   }
   document.addEventListener('pointerdown', function(e){
+    if (!e.isTrusted) return;
     var ex = findExplorable(e.target);
     parent.postMessage({ __aioux:true, kind:'frame-pointer', phase:'down',
       x:e.clientX, y:e.clientY, w:innerWidth, h:innerHeight,
@@ -155,6 +156,7 @@ function buildBridgeScript(nonce) {
       label: ex ? (ex.dataset.label||ex.textContent.slice(0,40)) : null }, '*');
   }, true);
   document.addEventListener('pointerup', function(e){
+    if (!e.isTrusted) return;
     var ex = findExplorable(e.target);
     parent.postMessage({ __aioux:true, kind:'frame-pointer', phase:'up',
       x:e.clientX, y:e.clientY, w:innerWidth, h:innerHeight,
