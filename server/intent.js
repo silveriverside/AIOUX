@@ -141,6 +141,169 @@ const EXPECTED_KEYS = [
 ];
 const RESERVED_ACTION_VALUES = new Set(['stay', 'navigate', 'create']);
 
+function extractBalancedJsonCandidates(text) {
+  const candidates = [];
+  let inString = false;
+  let escape = false;
+  let start = -1;
+  const stack = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      if (inString) escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === '{' || ch === '[') {
+      if (stack.length === 0) start = i;
+      stack.push(ch);
+      continue;
+    }
+    if (ch !== '}' && ch !== ']') continue;
+
+    const opener = stack[stack.length - 1];
+    if ((ch === '}' && opener !== '{') || (ch === ']' && opener !== '[')) {
+      stack.length = 0;
+      start = -1;
+      continue;
+    }
+
+    stack.pop();
+    if (stack.length === 0 && start >= 0) {
+      candidates.push({ text: text.slice(start, i + 1), start, end: i + 1 });
+      start = -1;
+    }
+  }
+
+  return candidates;
+}
+
+function isLikelyDecisionObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  const action = typeof obj.action === 'string' ? obj.action.replace(/[{\s]+$/g, '') : obj.action;
+  const mode = typeof obj.mode === 'string' ? obj.mode.replace(/[{\s]+$/g, '') : obj.mode;
+  if (typeof obj.shouldUpdate !== 'boolean') return false;
+  if (!['stay', 'navigate', 'create'].includes(action)) return false;
+  if (!['full', 'patch'].includes(mode)) return false;
+  if (mode === 'patch' && !Array.isArray(obj.patches)) return false;
+  return true;
+}
+
+function hasUnclosedJsonStart(text) {
+  let inString = false;
+  let escape = false;
+  const stack = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      if (inString) escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === '{' || ch === '[') {
+      stack.push(ch);
+      continue;
+    }
+    if (ch !== '}' && ch !== ']') continue;
+
+    const opener = stack[stack.length - 1];
+    if ((ch === '}' && opener === '{') || (ch === ']' && opener === '[')) {
+      stack.pop();
+    }
+  }
+
+  return stack.length > 0;
+}
+
+function selectJsonCandidate(rawText) {
+  const candidates = extractBalancedJsonCandidates(rawText);
+  if (candidates.length === 0) return { text: rawText, mixedContent: false, multipleCandidates: false };
+  if (candidates.length === 1 && candidates[0].text.trim() === rawText) {
+    return { text: rawText, mixedContent: false, multipleCandidates: false };
+  }
+
+  const lastCandidate = candidates[candidates.length - 1];
+  if (lastCandidate && hasUnclosedJsonStart(rawText.slice(lastCandidate.end))) {
+    return {
+      text: '',
+      mixedContent: true,
+      multipleCandidates: candidates.length > 1,
+      trailingTruncatedCandidate: true,
+    };
+  }
+
+  const validDecisionCandidates = [];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate.text);
+      if (isLikelyDecisionObject(parsed)) {
+        validDecisionCandidates.push(candidate);
+      }
+    } catch {
+      // 继续尝试下一个候选。
+    }
+  }
+
+  if (validDecisionCandidates.length > 1) {
+    return {
+      text: '',
+      mixedContent: true,
+      multipleCandidates: true,
+      ambiguousDecisionCandidates: true,
+    };
+  }
+  if (validDecisionCandidates.length === 1) {
+    const candidate = validDecisionCandidates[0];
+    return {
+      text: candidate.text,
+      mixedContent: candidate.text.trim() !== rawText,
+      multipleCandidates: candidates.length > 1,
+    };
+  }
+  if (candidates.length > 1) {
+    return {
+      text: '',
+      mixedContent: true,
+      multipleCandidates: true,
+      noUniqueDecisionCandidate: true,
+    };
+  }
+  if (candidates[0].text.trim() !== rawText) {
+    return {
+      text: '',
+      mixedContent: true,
+      multipleCandidates: false,
+      noValidMixedDecisionCandidate: true,
+    };
+  }
+
+  return {
+    text: candidates[0].text,
+    mixedContent: candidates[0].text.trim() !== rawText,
+    multipleCandidates: candidates.length > 1,
+  };
+}
+
 /**
  * 对模型损坏的字段名进行模糊匹配修复。
  * 已知损坏模式：空字符串 key、多余尾部字符（如 nodeId{、parentId{）等。
@@ -249,12 +412,85 @@ function fuzzyRepairKeys(obj) {
  * 额外处理字段名丢失的模型 bug（空字符串 key、错位字符等恢复）。
  */
 export function parseHybridOutput(raw, currentNode) {
-  let jsonText = raw.trim();
+  const rawText = raw.trim();
+  const selectedJson = selectJsonCandidate(rawText);
+  let jsonText = selectedJson.text.trim();
   // 标记：JSON 因截断而被"补后缀"修复成功——这类内容本质不完整、不可信，不应落地提交。
   let truncatedRepair = false;
-  // 容错：去掉可能的 ```json ``` 包裹
-  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) jsonText = fenceMatch[1].trim();
+  const mixedContent = selectedJson.mixedContent;
+  const multipleCandidates = selectedJson.multipleCandidates;
+  if (selectedJson.trailingTruncatedCandidate) {
+    return {
+      ok: false,
+      error: '模型输出尾部包含疑似截断的 JSON 决策候选（待修复 bug），已阻止落地。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的最终决策 JSON 疑似被截断',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
+  if (selectedJson.ambiguousDecisionCandidates) {
+    return {
+      ok: false,
+      error: '模型输出包含多个合法 JSON 决策候选（待修复 bug）：无法可靠判断最终决策，已阻止落地。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回了多个可执行决策对象，存在歧义',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
+  if (selectedJson.noUniqueDecisionCandidate) {
+    return {
+      ok: false,
+      error: '模型输出包含多个 JSON 候选但没有唯一合法 JSON 决策候选（待修复 bug），已阻止落地。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的多个 JSON 候选无法可靠选择',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
+  if (selectedJson.noValidMixedDecisionCandidate) {
+    return {
+      ok: false,
+      error: '模型输出混入非 JSON 内容但没有合法 JSON 决策候选（待修复 bug），已阻止落地。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的混合内容没有合法决策对象',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
 
   let obj;
   try {
@@ -492,6 +728,13 @@ export function parseHybridOutput(raw, currentNode) {
   }
   if (recovered) {
     result.error = '警告：模型输出存在字段名损坏 bug，已自动修复。此问题需关注。';
+    result.ok = false;
+  }
+  if (mixedContent || multipleCandidates) {
+    const reason = multipleCandidates
+      ? '模型输出混入多个 JSON 候选，已选择第一个合法决策对象。'
+      : '模型输出混入非 JSON 内容，已提取合法决策对象。';
+    result.error = result.error ? `${result.error} ${reason}` : `警告：${reason}`;
     result.ok = false;
   }
   return result;

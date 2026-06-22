@@ -175,6 +175,176 @@ test('action 尾部结构残片可清理后正常落地', () => {
   assert.equal(result.decision.nodeId, 'recoverable_action');
 });
 
+test('自然语言包裹 JSON 时提取有效决策对象', () => {
+  const raw = [
+    '模型判断如下，下面是本次需要执行的决策 JSON：',
+    JSON.stringify({
+      shouldUpdate: true,
+      action: 'create',
+      nodeId: 'wrapped_json_page',
+      parentId: 'main',
+      title: '自然语言包裹页面',
+      intent: '测试自然语言包裹 JSON',
+      reasoning: '模型在 JSON 前后混入了解释文本',
+      mode: 'full',
+      html: '<main>wrapped</main>',
+      patches: [],
+    }),
+    '以上 JSON 可直接执行。',
+  ].join('\n');
+
+  const result = parseHybridOutput(raw, currentNode);
+
+  assert.equal(result.ok, false, '混入自然语言的自动提取应暴露警告');
+  assert.equal(result.decision.shouldUpdate, true);
+  assert.equal(result.decision.action, 'create');
+  assert.equal(result.decision.nodeId, 'wrapped_json_page');
+  assert.ok(result.error && result.error.includes('混入'), '应明确说明模型混入了非 JSON 内容');
+});
+
+test('多个 JSON 候选时选择第一个合法决策对象', () => {
+  const invalidCandidate = JSON.stringify({
+    note: '不是决策对象',
+    shouldUpdate: 'true',
+  });
+  const validCandidate = JSON.stringify({
+    shouldUpdate: true,
+    action: 'create',
+    nodeId: 'second_valid_candidate',
+    parentId: 'main',
+    title: '第二个候选',
+    intent: '测试多个 JSON 候选',
+    reasoning: '第一个候选不是合法决策对象，第二个才是',
+    mode: 'full',
+    html: '<main>second</main>',
+    patches: [],
+  });
+
+  const result = parseHybridOutput(`${invalidCandidate}\n\n${validCandidate}`, currentNode);
+
+  assert.equal(result.ok, false, '多个候选自动选择应暴露警告');
+  assert.equal(result.decision.shouldUpdate, true);
+  assert.equal(result.decision.action, 'create');
+  assert.equal(result.decision.nodeId, 'second_valid_candidate');
+  assert.ok(result.error && result.error.includes('多个 JSON 候选'), '应明确说明存在多个 JSON 候选');
+});
+
+test('Markdown code fence 多候选时跳过非决策 JSON 并选择有效决策', () => {
+  const raw = [
+    '先给出分析对象：',
+    '```json',
+    JSON.stringify({ analysis: '这里只是说明，不是决策' }),
+    '```',
+    '最终决策：',
+    '```json',
+    JSON.stringify({
+      shouldUpdate: true,
+      action: 'create',
+      nodeId: 'fenced_valid_candidate',
+      parentId: 'main',
+      title: '围栏候选',
+      intent: '测试 Markdown code fence 多候选',
+      reasoning: '应选择第二个 code fence 中的决策对象',
+      mode: 'full',
+      html: '<main>fenced</main>',
+      patches: [],
+    }),
+    '```',
+  ].join('\n');
+
+  const result = parseHybridOutput(raw, currentNode);
+
+  assert.equal(result.ok, false, 'code fence 多候选自动选择应暴露警告');
+  assert.equal(result.decision.shouldUpdate, true);
+  assert.equal(result.decision.action, 'create');
+  assert.equal(result.decision.nodeId, 'fenced_valid_candidate');
+  assert.ok(result.error && result.error.includes('多个 JSON 候选'), '应明确说明存在多个 JSON 候选');
+});
+
+test('多个合法 JSON 决策候选时显式阻止落地', () => {
+  const draftCandidate = JSON.stringify({
+    shouldUpdate: true,
+    action: 'create',
+    nodeId: 'draft_candidate',
+    parentId: 'main',
+    title: '草稿候选',
+    intent: '测试草稿候选',
+    reasoning: '第一个合法对象可能只是示例或草稿',
+    mode: 'full',
+    html: '<main>draft</main>',
+    patches: [],
+  });
+  const finalCandidate = JSON.stringify({
+    shouldUpdate: true,
+    action: 'create',
+    nodeId: 'final_candidate',
+    parentId: 'main',
+    title: '最终候选',
+    intent: '测试最终候选',
+    reasoning: '第二个合法对象才像最终决策',
+    mode: 'full',
+    html: '<main>final</main>',
+    patches: [],
+  });
+
+  const result = parseHybridOutput(`${draftCandidate}\n\n${finalCandidate}`, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false, '多个合法候选存在歧义时不应落地');
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('多个合法 JSON 决策候选'), '应明确说明多个合法候选歧义');
+});
+
+test('多个非严格合法 JSON 候选不应回退修复第一个并落地', () => {
+  const repairableButAmbiguous = JSON.stringify({
+    foo: true,
+    bar: 'create',
+    baz: 'fake_node',
+    mode: 'full',
+    html: '<main>fake</main>',
+  });
+  const noteCandidate = JSON.stringify({ note: '另一个非决策候选' });
+
+  const result = parseHybridOutput(`${repairableButAmbiguous}\n\n${noteCandidate}`, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false, '多个非严格候选不应交给模糊修复后落地');
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('没有唯一合法 JSON 决策候选'), '应明确说明候选无法可靠选择');
+});
+
+test('自然语言包裹的单个非严格合法 JSON 不应被模糊修复后落地', () => {
+  const repairableButMixed = JSON.stringify({
+    foo: true,
+    actionGuess: 'create',
+    titleText: 'wrong_page',
+    mode: 'full',
+    html: '<main>wrong</main>',
+  });
+
+  const result = parseHybridOutput(`模型先解释一下：\n${repairableButMixed}\n以上供参考。`, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false, '混合内容里的非严格候选不应交给模糊修复后落地');
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('没有合法 JSON 决策候选'), '应明确说明混合内容没有合法决策候选');
+});
+
+test('前置 JSON 后跟截断决策 JSON 时优先按截断阻止落地', () => {
+  const noteCandidate = JSON.stringify({ note: '前置说明对象，不是决策' });
+  const truncatedDecision =
+    '{"shouldUpdate":true,"action":"create","nodeId":"truncated_after_note","parentId":"main",' +
+    '"title":"截断候选","intent":"测试","reasoning":"真正决策被截断","mode":"full",' +
+    '"html":"<main>unfinished';
+
+  const result = parseHybridOutput(`${noteCandidate}\n\n${truncatedDecision}`, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('截断'), '应明确说明尾部决策 JSON 被截断');
+});
+
 test('正常完整输出不受截断保护影响（ok=true 且可落地）', () => {
   const raw = JSON.stringify({
     shouldUpdate: true,
