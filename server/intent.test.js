@@ -345,6 +345,149 @@ test('前置 JSON 后跟截断决策 JSON 时优先按截断阻止落地', () =>
   assert.ok(result.error && result.error.includes('截断'), '应明确说明尾部决策 JSON 被截断');
 });
 
+test('数组包裹单个决策对象也不应被展开落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify([{
+      shouldUpdate: true,
+      action: 'create',
+      nodeId: 'array_wrapped_decision',
+      parentId: 'main',
+      title: '数组包裹',
+      intent: '测试数组包裹',
+      reasoning: '模型把决策包在数组里',
+      mode: 'full',
+      html: '<main>array</main>',
+      patches: [],
+    }]),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('非对象'), '应按顶层非对象阻止落地');
+});
+
+test('嵌套伪装的 decision 对象不应被自动展开落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      decision: {
+        shouldUpdate: true,
+        action: 'create',
+        nodeId: 'nested_decision',
+        parentId: 'main',
+        title: '嵌套伪装',
+        intent: '测试嵌套伪装',
+        reasoning: '模型把决策放到 decision 字段里',
+        mode: 'full',
+        html: '<main>nested</main>',
+        patches: [],
+      },
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('嵌套'), '应明确说明嵌套决策对象不被接受');
+});
+
+test('重复关键字段应显式阻止而不是接受最后一个值', () => {
+  const raw = [
+    '{',
+    '"shouldUpdate": false,',
+    '"shouldUpdate": true,',
+    '"action": "create",',
+    '"nodeId": "duplicate_key_page",',
+    '"parentId": "main",',
+    '"title": "重复字段",',
+    '"intent": "测试重复字段",',
+    '"reasoning": "JSON.parse 会保留最后一个 shouldUpdate",',
+    '"mode": "full",',
+    '"html": "<main>duplicate</main>",',
+    '"patches": []',
+    '}',
+  ].join('');
+
+  const result = parseHybridOutput(raw, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('重复关键字段'), '应明确说明重复关键字段');
+});
+
+test('Unicode escape 形式的重复关键字段也应阻止落地', () => {
+  const raw = [
+    '{',
+    '"shouldUpdate": false,',
+    '"\\u0073houldUpdate": true,',
+    '"action": "create",',
+    '"nodeId": "unicode_duplicate_key",',
+    '"parentId": "main",',
+    '"title": "Unicode 重复字段",',
+    '"intent": "测试 Unicode escape 重复字段",',
+    '"reasoning": "JSON.parse 会把转义 key 解码成 shouldUpdate",',
+    '"mode": "full",',
+    '"html": "<main>unicode duplicate</main>",',
+    '"patches": []',
+    '}',
+  ].join('');
+
+  const result = parseHybridOutput(raw, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('重复关键字段'), '应明确说明重复关键字段');
+});
+
+test('关键字段对象类型污染时显式阻止落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      shouldUpdate: true,
+      action: 'create',
+      nodeId: { value: 'object_node_id' },
+      parentId: 'main',
+      title: '对象污染',
+      intent: '测试 nodeId 对象污染',
+      reasoning: 'nodeId 不是字符串',
+      mode: 'full',
+      html: '<main>object</main>',
+      patches: [],
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('nodeId'), '应明确说明 nodeId 类型错误');
+});
+
+test('控制字符包裹的 JSON 仍可正常解析', () => {
+  const result = parseHybridOutput(
+    `\uFEFF\n\t${JSON.stringify({
+      shouldUpdate: true,
+      action: 'create',
+      nodeId: 'control_wrapped',
+      parentId: 'main',
+      title: '控制字符包裹',
+      intent: '测试控制字符包裹',
+      reasoning: 'JSON 前后有 BOM 和空白',
+      mode: 'full',
+      html: '<main>control</main>',
+      patches: [],
+    })}\n`,
+    currentNode
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.decision.shouldUpdate, true);
+  assert.equal(result.decision.nodeId, 'control_wrapped');
+});
+
 test('正常完整输出不受截断保护影响（ok=true 且可落地）', () => {
   const raw = JSON.stringify({
     shouldUpdate: true,
