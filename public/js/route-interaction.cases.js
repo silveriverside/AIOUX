@@ -114,6 +114,32 @@ export const cases = [
   { description: 'caps.nativeInteractions 缺失（3D tap 不命中本地）', category: 'edge_missing_caps', ev: { type: 'tap' }, caps: { sceneType: 'interactive_3d' }, expected: { kind: 'model', intentHint: 'refine_current' } },
   { description: 'caps 缺失时文本创建仍可路由', category: 'edge_missing_caps', ev: { type: 'text', text: '新建一个太阳系页面' }, caps: null, expected: { kind: 'model', intentHint: 'create_or_navigate' } },
   { description: 'caps 缺失时模糊文本走模型判断', category: 'edge_missing_caps', ev: { type: 'text', text: '帮我看看' }, caps: null, expected: { kind: 'model', intentHint: 'model_decide' } },
+
+  // 第 17 轮扩充：补齐 create_or_navigate 到 20 条
+  { description: '文本“打开供应链风险专题”', category: 'text_create', ev: { type: 'text', text: '打开供应链风险专题' }, caps: { sceneType: 'interactive_2d', nativeInteractions: NATIVE['2d'] }, expected: { kind: 'model', intentHint: 'create_or_navigate' } },
+  { description: '文本“做一个新品发布页”', category: 'text_create', ev: { type: 'text', text: '做一个新品发布页' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'create_or_navigate' } },
+
+  // 第 17 轮扩充：补齐 refine_current 到 20 条
+  { description: '文本“优化当前图例可读性”', category: 'text_refine', ev: { type: 'text', text: '优化当前图例可读性' }, caps: { sceneType: 'interactive_2d', nativeInteractions: NATIVE['2d'] }, expected: { kind: 'model', intentHint: 'refine_current' } },
+  { description: '文本“这里补充风险等级标签”', category: 'text_refine', ev: { type: 'text', text: '这里补充风险等级标签' }, caps: { sceneType: 'interactive_2d', nativeInteractions: NATIVE['2d'] }, expected: { kind: 'model', intentHint: 'refine_current' } },
+  { description: '文本“把这个图换成冷色系”', category: 'text_refine', ev: { type: 'text', text: '把这个图换成冷色系' }, caps: { sceneType: 'interactive_2d', nativeInteractions: NATIVE['2d'] }, expected: { kind: 'model', intentHint: 'refine_current' } },
+  { description: '文本“在当前看板叠加同比数据”', category: 'text_refine', ev: { type: 'text', text: '在当前看板叠加同比数据' }, caps: { sceneType: 'card_browser', nativeInteractions: NATIVE.card }, expected: { kind: 'model', intentHint: 'refine_current' } },
+  { description: '文本“这个场景减少背景干扰”', category: 'text_refine', ev: { type: 'text', text: '这个场景减少背景干扰' }, caps: { sceneType: 'immersive_media', nativeInteractions: NATIVE.imm }, expected: { kind: 'model', intentHint: 'refine_current' } },
+  { description: '文本“给当前区域加一层边界线”', category: 'text_refine', ev: { type: 'text', text: '给当前区域加一层边界线' }, caps: { sceneType: 'interactive_2d', nativeInteractions: NATIVE['2d'] }, expected: { kind: 'model', intentHint: 'refine_current' } },
+
+  // 第 17 轮扩充：补齐 model_decide 到 20 条，覆盖 generic/caps 缺失的模糊文本
+  { description: 'generic 文本“还有什么发现”', category: 'generic_text_fallback', ev: { type: 'text', text: '还有什么发现' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“你怎么看”', category: 'generic_text_fallback', ev: { type: 'text', text: '你怎么看' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“接下来呢”', category: 'generic_text_fallback', ev: { type: 'text', text: '接下来呢' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“有没有风险”', category: 'generic_text_fallback', ev: { type: 'text', text: '有没有风险' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“整体情况怎样”', category: 'generic_text_fallback', ev: { type: 'text', text: '整体情况怎样' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“换个思路看”', category: 'generic_text_fallback', ev: { type: 'text', text: '换个思路看' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“帮我判断一下”', category: 'generic_text_fallback', ev: { type: 'text', text: '帮我判断一下' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'generic 文本“现在该关注什么”', category: 'generic_text_fallback', ev: { type: 'text', text: '现在该关注什么' }, caps: { sceneType: 'generic', nativeInteractions: NATIVE.none }, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'caps 缺失时模糊文本“还有什么发现”', category: 'edge_missing_caps', ev: { type: 'text', text: '还有什么发现' }, caps: null, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'caps 缺失时模糊文本“你怎么看”', category: 'edge_missing_caps', ev: { type: 'text', text: '你怎么看' }, caps: null, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'caps 缺失时模糊文本“整体情况怎样”', category: 'edge_missing_caps', ev: { type: 'text', text: '整体情况怎样' }, caps: null, expected: { kind: 'model', intentHint: 'model_decide' } },
+  { description: 'caps 缺失时模糊文本“帮我判断一下”', category: 'edge_missing_caps', ev: { type: 'text', text: '帮我判断一下' }, caps: null, expected: { kind: 'model', intentHint: 'model_decide' } },
 ];
 
 export function summarizeMisroutings(allCases, failures) {
