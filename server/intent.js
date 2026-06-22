@@ -235,6 +235,80 @@ function hasUnclosedJsonStart(text) {
   return stack.length > 0;
 }
 
+function findDuplicateTopLevelKeys(text) {
+  const keys = [];
+  let inString = false;
+  let escape = false;
+  let current = '';
+  let stringStart = -1;
+  let depth = 0;
+  let expectingKey = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      if (inString) current += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      if (inString) {
+        current += ch;
+        escape = true;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      if (inString) {
+        inString = false;
+        if (depth === 1 && expectingKey) {
+          let j = i + 1;
+          while (/\s/.test(text[j] || '')) j += 1;
+          if (text[j] === ':') {
+            try {
+              keys.push(JSON.parse(text.slice(stringStart, i + 1)));
+            } catch {
+              keys.push(current);
+            }
+            expectingKey = false;
+          }
+        }
+        current = '';
+        stringStart = -1;
+      } else {
+        inString = true;
+        current = '';
+        stringStart = i;
+      }
+      continue;
+    }
+    if (inString) {
+      current += ch;
+      continue;
+    }
+    if (ch === '{' || ch === '[') {
+      depth += 1;
+      if (ch === '{' && depth === 1) expectingKey = true;
+      continue;
+    }
+    if (ch === '}' || ch === ']') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth === 1 && ch === ',') {
+      expectingKey = true;
+    }
+  }
+
+  const seen = new Set();
+  return keys.filter((key) => {
+    if (!EXPECTED_KEYS.includes(key)) return false;
+    if (seen.has(key)) return true;
+    seen.add(key);
+    return false;
+  });
+}
+
 function selectJsonCandidate(rawText) {
   const candidates = extractBalancedJsonCandidates(rawText);
   if (candidates.length === 0) return { text: rawText, mixedContent: false, multipleCandidates: false };
@@ -493,6 +567,25 @@ export function parseHybridOutput(raw, currentNode) {
   }
 
   let obj;
+  const duplicateKeys = findDuplicateTopLevelKeys(jsonText);
+  if (duplicateKeys.length) {
+    return {
+      ok: false,
+      error: `模型输出包含重复关键字段（待修复 bug）：${duplicateKeys.join(', ')}`,
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的决策 JSON 含重复关键字段',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
   try {
     obj = JSON.parse(jsonText);
   } catch (err) {
@@ -546,6 +639,24 @@ export function parseHybridOutput(raw, currentNode) {
         title: currentNode.title,
         intent: '(解析失败)',
         reasoning: '模型返回的 JSON 顶层不是决策对象',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
+  if (obj.decision && typeof obj.decision === 'object') {
+    return {
+      ok: false,
+      error: '模型输出包含嵌套决策对象（待修复 bug）：必须返回顶层决策字段，不接受 decision 包裹。',
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回了嵌套 decision 对象',
         mode: 'full',
         html: '',
         patches: [],
@@ -674,6 +785,24 @@ export function parseHybridOutput(raw, currentNode) {
   }
   if (!['full', 'patch'].includes(obj.mode)) {
     return invalidDecision('mode 缺失或不在 full/patch 枚举内。');
+  }
+  if ('nodeId' in obj && typeof obj.nodeId !== 'string') {
+    return invalidDecision('nodeId 必须是字符串。');
+  }
+  if ('parentId' in obj && obj.parentId !== null && typeof obj.parentId !== 'string') {
+    return invalidDecision('parentId 必须是字符串或 null。');
+  }
+  if ('title' in obj && typeof obj.title !== 'string') {
+    return invalidDecision('title 必须是字符串。');
+  }
+  if ('intent' in obj && typeof obj.intent !== 'string') {
+    return invalidDecision('intent 必须是字符串。');
+  }
+  if ('reasoning' in obj && typeof obj.reasoning !== 'string') {
+    return invalidDecision('reasoning 必须是字符串。');
+  }
+  if ('html' in obj && typeof obj.html !== 'string') {
+    return invalidDecision('html 必须是字符串。');
   }
   if (obj.mode === 'patch' && !Array.isArray(obj.patches)) {
     return invalidDecision('mode=patch 时 patches 必须是数组。');
