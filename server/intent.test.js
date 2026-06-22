@@ -84,6 +84,97 @@ test('合法 JSON 但顶层不是对象时显式阻止落地', () => {
   assert.ok(result.error && result.error.includes('非对象'), '应明确说明模型 JSON 顶层类型异常');
 });
 
+test('缺少 shouldUpdate 关键字段时显式阻止落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      action: 'create',
+      nodeId: 'missing_should_update',
+      parentId: 'main',
+      title: '缺字段页面',
+      intent: '测试缺字段',
+      reasoning: '模型漏字段',
+      mode: 'full',
+      html: '<main>missing</main>',
+      patches: [],
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('shouldUpdate'), '应明确说明缺少 shouldUpdate');
+});
+
+test('关键字段类型污染时显式阻止落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      shouldUpdate: 'true',
+      action: 'create',
+      nodeId: 'polluted_type',
+      parentId: 'main',
+      title: '类型污染',
+      intent: '测试类型污染',
+      reasoning: 'shouldUpdate 是字符串',
+      mode: 'full',
+      html: '<main>polluted</main>',
+      patches: [],
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('shouldUpdate'), '应明确说明 shouldUpdate 类型错误');
+});
+
+test('非法 action 和 mode 枚举时显式阻止落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      shouldUpdate: true,
+      action: 'delete',
+      nodeId: 'bad_enum',
+      parentId: 'main',
+      title: '非法枚举',
+      intent: '测试非法枚举',
+      reasoning: 'action 和 mode 非法',
+      mode: 'stream',
+      html: '<main>bad enum</main>',
+      patches: [],
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false);
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('action'), '应明确说明 action 非法');
+});
+
+test('action 尾部结构残片可清理后正常落地', () => {
+  const result = parseHybridOutput(
+    JSON.stringify({
+      shouldUpdate: true,
+      action: 'create{',
+      nodeId: 'recoverable_action',
+      parentId: 'main',
+      title: '可恢复 action',
+      intent: '测试 action 末尾残片',
+      reasoning: '模型多输出了结构残片',
+      mode: 'full',
+      html: '<main>recoverable</main>',
+      patches: [],
+    }),
+    currentNode
+  );
+
+  assert.equal(result.ok, false, '字段残片自动修复仍应暴露警告');
+  assert.equal(result.decision.shouldUpdate, true);
+  assert.equal(result.decision.action, 'create');
+  assert.equal(result.decision.nodeId, 'recoverable_action');
+});
+
 test('正常完整输出不受截断保护影响（ok=true 且可落地）', () => {
   const raw = JSON.stringify({
     shouldUpdate: true,
