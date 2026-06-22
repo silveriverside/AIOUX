@@ -248,6 +248,115 @@ async function testLocalNative3d(page) {
   console.log(`[e2e] status: ${statusText}`);
 }
 
+async function testInlineScriptSandboxBoundary(page) {
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!document.querySelector('#status-text')?.textContent);
+
+  const result = await page.evaluate(async () => {
+    const stage = await import('/js/stage.js');
+    const beforeStatus = document.querySelector('#status-text')?.textContent || '';
+    const testId = `inline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    window.__e2eInlineScriptReport = null;
+    const onInlineBoundaryMessage = (event) => {
+      if (event.data?.__e2eInlineScriptBoundary && event.data.testId === testId) {
+        window.__e2eInlineScriptReport = event.data;
+        window.removeEventListener('message', onInlineBoundaryMessage);
+      }
+    };
+    window.addEventListener('message', onInlineBoundaryMessage);
+    stage.renderFull(`
+      <script>
+        var AIOUX_E2E_INLINE_TEST_ID = ${JSON.stringify(testId)};
+        window.__AIOUX_CAPABILITIES__ = { sceneType: 'interactive_2d', nativeInteractions: ['pan'] };
+        var parentAccessBlocked = false;
+        try {
+          parent.document.body.dataset.inlineBreakout = 'yes';
+        } catch (err) {
+          parentAccessBlocked = true;
+        }
+        parent.postMessage({
+          __e2eInlineScriptBoundary: true,
+          testId: AIOUX_E2E_INLINE_TEST_ID,
+          inlineRan: true,
+          parentAccessBlocked: parentAccessBlocked
+        }, '*');
+        parent.postMessage({
+          __aioux: true,
+          kind: 'frame-capabilities',
+          nonce: 'wrong-inline-nonce',
+          capabilities: { sceneType: 'card_browser', nativeInteractions: ['tap_filter'] }
+        }, '*');
+        parent.postMessage({
+          __aioux: true,
+          kind: 'frame-pointer',
+          nonce: 'wrong-inline-nonce',
+          phase: 'down',
+          x: 10,
+          y: 10,
+          w: 100,
+          h: 100,
+          label: null
+        }, '*');
+        parent.postMessage({
+          __aioux: true,
+          kind: 'frame-pointer',
+          nonce: 'wrong-inline-nonce',
+          phase: 'up',
+          x: 10,
+          y: 10,
+          w: 100,
+          h: 100,
+          label: null
+        }, '*');
+        setTimeout(function(){
+          document.body.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 10,
+            clientY: 10,
+            pointerId: 1
+          }));
+          document.body.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 80,
+            clientY: 10,
+            pointerId: 1
+          }));
+        }, 20);
+      <\/script>
+      <main>inline script boundary</main>
+    `);
+    return {
+      beforeStatus,
+      testId,
+    };
+  });
+
+  await page.waitForFunction(async () => {
+    const stage = await import('/js/stage.js');
+    return stage.getCapabilities().sceneType === 'interactive_2d';
+  });
+  await page.waitForFunction(() => window.__e2eInlineScriptReport?.inlineRan === true);
+  await page.waitForTimeout(250);
+
+  const after = await page.evaluate(async () => {
+    const stage = await import('/js/stage.js');
+    return {
+      caps: stage.getCapabilities(),
+      status: document.querySelector('#status-text')?.textContent || '',
+      parentBreakout: document.body.dataset.inlineBreakout || '',
+      inlineReport: window.__e2eInlineScriptReport,
+    };
+  });
+
+  assert(after.inlineReport?.inlineRan, `内联脚本应在 sandbox iframe 内执行: ${JSON.stringify(after)}`);
+  assert(after.inlineReport?.parentAccessBlocked, `内联脚本不应访问父页面 DOM: ${JSON.stringify(after)}`);
+  assert(!after.parentBreakout, `内联脚本不应污染父页面 DOM: ${JSON.stringify(after)}`);
+  assert(after.caps.sceneType === 'interactive_2d', `合法 bridge capabilities 应保持，错误 nonce 不应覆盖: ${JSON.stringify(after)}`);
+  assert(after.status === result.beforeStatus, `错误 nonce 的内联 pointer 不应触发交互状态变化: ${JSON.stringify({ result, after })}`);
+
+  console.log('[e2e] inline script sandbox boundary ok');
+}
+
 async function testBadPatchGuard(page) {
   let syncCount = 0;
   page.on('request', (request) => {
@@ -304,6 +413,7 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
     await testLocalNative3d(page);
+    await testInlineScriptSandboxBoundary(page);
     await testSnapshotStatus(page);
     await testBadPatchGuard(page);
   } finally {

@@ -26,7 +26,7 @@
 ## 3. 当前风险清单
 
 - P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言，启发式修复不能覆盖所有情况。
-- P0：sandbox iframe 默认已移除 `allow-same-origin`，iframe bridge 消息已增加 `event.source`、nonce 与协议字段白名单校验，并补充真实浏览器 E2E 回归；生成 HTML 仍允许内联脚本，后续仍需评估内联脚本边界。
+- P0：sandbox iframe 默认已移除 `allow-same-origin`，iframe bridge 消息已增加 `event.source`、nonce 与协议字段白名单校验，并补充真实浏览器 E2E 回归；内联脚本边界已有 E2E 基线（可执行但不能访问父页面 DOM 或绕过 bridge），后续是否禁用/收紧内联脚本仍需单独架构决策。
 - P1：意图路由仍以启发式为主，已有基础可回放样本集和准确率输出，但样本规模仍偏小，需要继续扩展真实场景。
 - P1：素材复用已有观测字段、最近使用时间信号和基础离线质量分，但还没有接入排序策略，也缺少失效、回退、使用结果等综合质量因子。
 - P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页。
@@ -91,3 +91,4 @@
 - 2026-06-20：sandbox iframe bridge 消息增加 `event.source` 与 nonce 双校验，`frame-capabilities` 与 `frame-pointer` 均拒绝伪造来源或错误 nonce；新增 stage/pointer 回归测试，全量 `node --test` 保持 167/167 通过。
 - 2026-06-20：sandbox iframe bridge 增加协议白名单与字段形状校验，只接受 `frame-capabilities` 与 `frame-pointer`，拒绝未知 kind、畸形 capabilities、非法 sceneType/数组元素/数组长度、非法 pointer phase/坐标范围/尺寸/label；全量 `node --test` 保持 169/169 通过。
 - 2026-06-22：E2E 改用真实 sandbox iframe bridge 上报 capabilities 与 pointer 事件，验证父窗口伪造消息不会改变 capabilities 或触发本地交互；`npm run e2e` 与 `node --test` 均通过。
+- 2026-06-22：新增内联脚本 sandbox 边界 E2E，确认生成 HTML 内联脚本会在 iframe 内执行，但不能访问父页面 DOM；同时 bridge 拒绝非可信合成 pointer 事件，错误 nonce 与合成事件都不会改变父侧 capabilities 或状态；`npm run e2e` 与 `node --test` 均通过。
