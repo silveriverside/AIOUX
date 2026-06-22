@@ -387,6 +387,24 @@ export function parseHybridOutput(raw, currentNode) {
       .slice(0, 4);
     return filtered.length ? filtered.join('_') : null;
   }
+  function invalidDecision(reason) {
+    return {
+      ok: false,
+      error: `模型输出决策字段异常（待修复 bug）：${reason}`,
+      decision: {
+        shouldUpdate: false,
+        action: 'stay',
+        nodeId: currentNode.nodeId,
+        parentId: null,
+        title: currentNode.title,
+        intent: '(解析失败)',
+        reasoning: '模型返回的决策字段缺失或类型不合法',
+        mode: 'full',
+        html: '',
+        patches: [],
+      },
+    };
+  }
   // nodeId 不该是 HTML
   if (typeof obj.nodeId === 'string' && obj.nodeId.length > 200 && looksLikeHtml(obj.nodeId)) {
     dirty = true;
@@ -404,7 +422,27 @@ export function parseHybridOutput(raw, currentNode) {
     obj.html = '';
   }
 
-  // 兜底：如果 shouldUpdate/action 仍缺失，从内容推断
+  // 清理模型偶发追加到字段值末尾的结构残片（如 "tiananmen{"）。
+  for (const key of ['action', 'nodeId', 'parentId', 'title', 'intent', 'reasoning']) {
+    if (typeof obj[key] === 'string' && /[{\s]+$/.test(obj[key])) {
+      dirty = true;
+      obj[key] = obj[key].replace(/[{\s]+$/g, '');
+    }
+  }
+
+  if (typeof obj.shouldUpdate !== 'boolean') {
+    return invalidDecision('缺少 shouldUpdate 或 shouldUpdate 不是 boolean。');
+  }
+  if (!['stay', 'navigate', 'create'].includes(obj.action)) {
+    return invalidDecision('action 缺失或不在 stay/navigate/create 枚举内。');
+  }
+  if (!['full', 'patch'].includes(obj.mode)) {
+    return invalidDecision('mode 缺失或不在 full/patch 枚举内。');
+  }
+  if (obj.mode === 'patch' && !Array.isArray(obj.patches)) {
+    return invalidDecision('mode=patch 时 patches 必须是数组。');
+  }
+
   let recovered = dirty;
   // nodeId 不应落到动作保留字上，优先从 html / title / intent 中恢复。
   if (typeof obj.nodeId === 'string' && RESERVED_ACTION_VALUES.has(obj.nodeId)) {
@@ -414,31 +452,6 @@ export function parseHybridOutput(raw, currentNode) {
       inferNodeIdFromText(obj.title) ||
       inferNodeIdFromText(obj.intent) ||
       `${currentNode.nodeId}_generated`;
-  }
-  if (obj.shouldUpdate === undefined) {
-    recovered = true;
-    const hasContent = (typeof obj.html === 'string' && obj.html.trim().length > 0) ||
-                      (obj.parentId !== undefined && obj.parentId !== null) ||
-                      (Array.isArray(obj.patches) && obj.patches.length > 0);
-    obj.shouldUpdate = hasContent;
-  }
-  if (obj.action === undefined) {
-    recovered = true;
-    if (obj.parentId && obj.parentId !== currentNode.nodeId) {
-      obj.action = 'create';
-    } else if (obj.nodeId && obj.nodeId !== currentNode.nodeId) {
-      obj.action = 'navigate';
-    } else {
-      obj.action = 'stay';
-    }
-  }
-
-  // 清理模型偶发追加到字段值末尾的结构残片（如 "tiananmen{"）。
-  for (const key of ['action', 'nodeId', 'parentId', 'title', 'intent', 'reasoning']) {
-    if (typeof obj[key] === 'string' && /[{\s]+$/.test(obj[key])) {
-      recovered = true;
-      obj[key] = obj[key].replace(/[{\s]+$/g, '');
-    }
   }
 
   // 动作一致性校验：进入当前页下的新 nodeId 时，应视为 create，而不是 stay。
