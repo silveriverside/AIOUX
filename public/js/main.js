@@ -4,6 +4,7 @@ import * as stage from './stage.js';
 import { initGraphPanel, renderBreadcrumb, renderTree, renderVersions } from './graph.js';
 import { initInteractions } from './interactions/index.js';
 import { routeInteraction } from './route-interaction.js';
+import { createTracePanelState, recordTraceEvent, renderTracePanel } from './trace-panel.js';
 
 const els = {
   welcome: document.getElementById('welcome'),
@@ -12,10 +13,12 @@ const els = {
   statusText: document.getElementById('status-text'),
   promptInput: document.getElementById('prompt-input'),
   promptSend: document.getElementById('prompt-send'),
+  tracePanel: document.getElementById('trace-panel'),
 };
 
 let currentNodeId = 'main';
 let busy = false;
+const tracePanelState = createTracePanelState({ limit: 12 });
 
 function makeTraceId(prefix = 'client') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -27,6 +30,8 @@ function elapsedSince(start) {
 
 function logTiming(event, detail) {
   console.info('[timing]', JSON.stringify({ event, ...detail }));
+  recordTraceEvent(tracePanelState, event, detail);
+  renderTracePanel(els.tracePanel, tracePanelState.entries);
 }
 
 function setStatus(text, action) {
@@ -250,6 +255,7 @@ async function revertTo(nodeId, fullHash) {
 // ===== 初始化 =====
 async function boot() {
   initGraphPanel({ onNavigate: navigateTo, onRevert: revertTo });
+  renderTracePanel(els.tracePanel, tracePanelState.entries);
 
   // 检查 API key 配置
   try {

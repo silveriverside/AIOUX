@@ -7,7 +7,7 @@
 
 - 项目已具备可运行的实时生成式 UX Demo：文本交互、Page Graph、节点历史、回退、异步快照、patch sync、多模态入口和浏览器端到端脚本均已打通。
 - 阶段 A 的阻断性 bug 已基本完成；阶段 B 的素材/记忆闭环已推进到第 3.13 步。
-- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 80/80 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 218/218 通过。
+- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 80/80 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 223/223 通过。
 - 当前最大风险不在基础链路，而在模型输出稳定性、安全隔离、意图路由误判和生成质量稳定性。
 
 ## 2. 已完成里程碑
@@ -31,7 +31,7 @@
 - P1：素材复用排序已接入质量分、综合权重与 issue/revert 风险惩罚；后续可继续调优权重、扩大质量信号和补充使用结果评估。
 - P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页。
 - P2：snapshot job 状态仅在进程内存中，服务重启后历史 jobId 不可恢复。
-- P2：缺少操作 trace 面板，无法在前端直接查看模型决策、修复记录、素材复用和 commit。
+- P2：前端已有最近 trace 面板，能查看交互事件、traceId、耗时和错误状态；后续可继续补齐决策、素材复用、修复记录和 commit 详情。
 
 ## 4. 推荐下一阶段路线
 
@@ -50,7 +50,7 @@
 ### 4.3 安全与产品化
 
 - `security/sandbox-isolation-protocol`：评估移除 `allow-same-origin`、收紧 sandbox 权限、增加 `postMessage` 白名单和 nonce 校验。
-- `feature/trace-panel`：增加操作 trace 面板，展示每次交互的决策、耗时、素材复用、修复记录和 git commit。
+- `feature/trace-panel`：已有最小最近 trace 面板；后续可扩展为完整操作追踪，展示每次交互的决策、素材复用、修复记录和 git commit。
 - `feature/template-dsl-generation`：把四套体验范式逐步升级为模板/DSL 生成，减少自由 HTML 漂移。
 
 ## 5. 当前建议立即推进
@@ -96,3 +96,4 @@
 - 2026-06-22：意图路由评测集从 42 条扩充到 60 条，新增本地原生交互、热点 target、文本创建/细化、generic 兜底和 caps 缺失样本；`npm run eval:intent-routing` 60/60 通过，全量 `node --test` 191/191 通过。
 - 2026-06-22：意图路由评测集从 60 条扩充到 80 条，四个核心 intentHint（`local_native`、`create_or_navigate`、`refine_current`、`model_decide`）各覆盖 20 条；`npm run eval:intent-routing` 80/80 通过，全量 `node --test` 211/211 通过。
 - 2026-06-22：模型决策 JSON 解析新增混合输出候选选择回归，支持自然语言包裹的唯一严格合法决策对象，阻止多个合法决策候选、多个候选无唯一合法决策、混合非严格候选和尾部截断候选落地；`server/intent.test.js` 16/16 通过，全量 `node --test` 218/218 通过。
+- 2026-06-22：前端新增最近 trace 面板，记录 `logTiming` 事件的 `traceId`、事件名、耗时和错误状态，支持 HTML 转义、空状态和环形截断；桌面/移动浏览器检查通过，`npm run e2e` 通过，全量 `node --test` 223/223 通过。
