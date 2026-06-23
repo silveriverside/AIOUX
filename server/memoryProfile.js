@@ -1,5 +1,18 @@
 // 偏好画像纯函数：根据交互信号更新计数、提取关键词、派生偏好。
-// 零 IO，全部可单测。signal 形如 { sceneType, variantId, text, action, reverted }。
+// 零 IO，全部可单测。signal 形如 { sceneType, variantId, text, action, reverted, variantDeviation }。
+
+// 模型自选 vs 服务端兜底的偏离分类（单一来源，routes.classifyVariantSelection 复用，避免漂移）。
+export const VARIANT_DEVIATION = Object.freeze({
+  MATCH: 'match',     // 模型选了与兜底相同的合法变体
+  DEVIATE: 'deviate', // 模型选了另一个合法变体（自选生效）
+  INVALID: 'invalid', // 模型回报了非法/未注册 id（会回退兜底）
+  ABSENT: 'absent',   // 模型未回报合法 variantId（未使用自选机制）
+});
+const VARIANT_DEVIATION_KINDS = Object.values(VARIANT_DEVIATION);
+
+function emptyVariantSelection() {
+  return { match: 0, deviate: 0, invalid: 0, absent: 0, total: 0 };
+}
 
 // 动效偏好词（动效 = motion/animation，含视差、GSAP 等动画库语义）。
 const MOTION_KEYWORDS = ['动效', '动画', '视差', 'gsap', 'motion', '过渡', '滚动动画'];
@@ -37,6 +50,7 @@ export function updateProfile(profile, signal = {}) {
     sceneTypeCounts: { ...(base.sceneTypeCounts || {}) },
     variantCounts: { ...(base.variantCounts || {}) },
     variantReverts: { ...(base.variantReverts || {}) },
+    variantSelection: { ...emptyVariantSelection(), ...(base.variantSelection || {}) },
     keywordCounts: { ...(base.keywordCounts || {}) },
     motionAffinity: base.motionAffinity || 0,
     threeDAffinity: base.threeDAffinity || 0,
@@ -44,13 +58,19 @@ export function updateProfile(profile, signal = {}) {
     updatedAt: Date.now(),
   };
 
-  const { sceneType, variantId, text, reverted } = signal;
+  const { sceneType, variantId, text, reverted, variantDeviation } = signal;
   if (sceneType) bump(next.sceneTypeCounts, sceneType);
   // reverted 信号是纯负反馈：只累加 variantReverts，不累加 variantCounts，
   // 这样 derivePreference 的净分（count - reverts）会随回退下降。
   if (variantId) {
     if (reverted) bump(next.variantReverts, variantId);
     else bump(next.variantCounts, variantId);
+  }
+
+  // 观测：累计模型自选 vs 服务端兜底的偏离分类（仅接受已知分类，避免脏值入桶）。
+  if (VARIANT_DEVIATION_KINDS.includes(variantDeviation)) {
+    next.variantSelection[variantDeviation] += 1;
+    next.variantSelection.total += 1;
   }
 
   if (text && typeof text === 'string') {
@@ -87,6 +107,13 @@ export function derivePreference(profile, { limit = 5 } = {}) {
     .sort((a, b) => b.net - a.net || b.count - a.count)
     .slice(0, limit);
 
+  const variantSelection = { ...emptyVariantSelection(), ...(p.variantSelection || {}) };
+  // 偏离率口径：在模型做了合法选择（match+deviate）的样本中，模型偏离服务端兜底的比例。
+  const legalChoices = variantSelection.match + variantSelection.deviate;
+  const variantDeviationRate = legalChoices
+    ? Math.round((variantSelection.deviate / legalChoices) * 1000) / 1000
+    : 0;
+
   return {
     topSceneTypes: topEntries(p.sceneTypeCounts, limit),
     topVariants,
@@ -94,5 +121,7 @@ export function derivePreference(profile, { limit = 5 } = {}) {
     motionAffinity: p.motionAffinity || 0,
     threeDAffinity: p.threeDAffinity || 0,
     totalSignals: p.totalSignals || 0,
+    variantSelection,
+    variantDeviationRate,
   };
 }

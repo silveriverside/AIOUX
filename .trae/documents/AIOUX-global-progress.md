@@ -9,10 +9,11 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 
 当前主线验证基线：
 
-- `node --test`：243/243 通过。
+- `node --test`：258/258 通过。
 - `npm run e2e`：通过，覆盖临时服务、sandbox bridge、本地 3D 交互、内联脚本边界、snapshot、sync 和坏 patch guard。
 - `npm run eval:intent-routing`：80/80 通过，四个核心 `intentHint` 各 20 条。
 - `npm run eval:asset-quality`：可输出素材质量排序报告。
+- `npm run eval:variant-deviation`：可输出「模型自选 vs 服务端兜底」偏离率报告。
 
 ## 2. 已完成能力
 
@@ -40,10 +41,11 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 - three.js 变体提升 priority（3→4）并补真实几何体关键词，确保兜底排序也把真 3D 排在伪 3D 前。
 - 模型在决策 JSON 用 `variantId` 回报所选变体：解析层做类型门禁（非字符串拒绝落地），并作为可观测字段返回。
 - 闭环：记忆写回时用 `resolveEffectiveVariant` 优先采用模型自选的合法变体（`reason=model_selected`），非法/缺失 id 回退服务端兜底，避免脏值污染画像。
+- 偏离观测：`classifyVariantSelection` 把每次交互分为 match/deviate/invalid/absent 四类，实时写入 `[timing]` 日志（`modelVariantId`、`variantDeviation`），并在「应用成功」路径累计到 `preferences.variantSelection`；`npm run eval:variant-deviation` 输出偏离率（`deviate/(match+deviate)`）、采纳率与脏值率报告。
 
 仍可继续：
 
-- 把真实交互中“模型选择 vs 兜底建议”的偏离率纳入观测，用于评估自选质量。
+- 积累真实样本后，按偏离率/采纳率评估模型自选质量，并据此调优 prompt 与变体注入文案。
 
 ### 2.4 模型 JSON 稳定性
 

@@ -22,6 +22,7 @@ export function createEmptyMemory() {
       sceneTypeCounts: {},
       variantCounts: {},
       variantReverts: {},
+      variantSelection: { match: 0, deviate: 0, invalid: 0, absent: 0, total: 0 },
       keywordCounts: {},
       motionAffinity: 0,
       threeDAffinity: 0,

@@ -9,7 +9,8 @@
     "dev": "node --watch server/index.js",
     "e2e": "node scripts/e2e.mjs",
     "eval:intent-routing": "node scripts/eval-intent-routing.mjs",
-    "eval:asset-quality": "node scripts/eval-asset-quality.mjs"
+    "eval:asset-quality": "node scripts/eval-asset-quality.mjs",
+    "eval:variant-deviation": "node scripts/eval-variant-deviation.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
