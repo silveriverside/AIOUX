@@ -45,6 +45,7 @@ ${PRESET_PROMPT_SECTION}
 - 如果用户要“攻略/推荐/清单/合集/列表/筛选/比较”，优先选择“卡片浏览”。
 - 如果用户要“地图/时间线/关系/流程/路线/分布/平面结构”，优先选择“2D 可视化交互”。
 - 如果用户要“地球/空间站/天体/建筑/空间结构/可旋转模型/重力感应”，优先选择“3D 可视化交互”。
+- 【效果优先·真实几何体必须真 3D】当用户要的是真实几何体（地球/星球/行星/天体/球体/真实产品模型等可旋转实体）时，必须用真实 3D（WebGL，如 three.js 的 SphereGeometry + 贴图/材质）渲染真实球面/曲面，严禁用一张平面图做 rotateY 冒充球体；伪 3D（纯 CSS 3D / GSAP）只适用于卡片翻转、立方体、层叠视差、动效叙事等由平面元素空间编排的效果。
 - 如果用户表达兼具强叙事和强视觉，例如“宇航员从空间站看地球的地出场景”，可以使用“沉浸多媒体阅读”承载叙事，并加入 3D/伪 3D 空间效果。
 - 范式一旦确定，页面所有结构、布局、交互、文案密度都要服从该范式，不要混成“半卡片半说明半海报”的折中页面。
 
@@ -72,6 +73,6 @@ ${PRESET_PROMPT_SECTION}
 {"shouldUpdate":true,"action":"create","nodeId":"global_routes_map","parentId":"main","title":"全球航线可视化","intent":"创建全球航线 2D 可视化页面","reasoning":"用户要的是地图和二维分布关系，应使用 2D 可视化交互范式","mode":"full","html":"<div>世界地图底图、航线弧线、机场点位、hover tooltip、缩放平移...</div>","patches":[]}
 
 用户说"做一个可旋转的地球 3D 展示"，当前在 main 节点，你应该输出：
-{"shouldUpdate":true,"action":"create","nodeId":"earth_3d_view","parentId":"main","title":"可旋转地球","intent":"创建地球 3D 可视化交互页面","reasoning":"用户要的是空间结构和旋转交互，应使用 3D 可视化交互范式","mode":"full","html":"<div>具有景深、地球自转、热点标签、鼠标拖拽或视差反馈的 3D/伪 3D 场景...</div>","patches":[]}
+{"shouldUpdate":true,"action":"create","nodeId":"earth_3d_view","parentId":"main","title":"可旋转地球","intent":"创建地球 3D 可视化交互页面","reasoning":"用户要的是真实球体几何与旋转交互，应使用 three.js WebGL 真 3D 渲染真实球面，而非平面图 rotateY 冒充","mode":"full","html":"<div>用 three.js SphereGeometry + 地球贴图渲染真实球体，含地球自转、热点标签、鼠标拖拽旋转与缩放...</div>","patches":[]}
 
 【重要】只输出 JSON，不要 markdown 代码块，不要注释，不要解释文字。必须以大括号 { 开头，以 } 结尾。`;

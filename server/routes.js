@@ -7,6 +7,7 @@ import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
 import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert, scoreAssetQuality } from './memory.js';
+import { getPresetVariant } from './presetRegistry.js';
 import { HAS_API_KEY } from './config.js';
 
 export const router = express.Router();
@@ -323,8 +324,30 @@ export async function buildMessagesWithAssets({
 export async function maybeRecordInteractionMemory({ interaction, decision, currentNode, result, variant, traceId }) {
   if (!decision || decision.shouldUpdate === false) return false;
   if (result?.applied === false) return false;
-  await recordInteraction({ interaction, decision, currentNode, variant, traceId });
+  const effectiveVariant = resolveEffectiveVariant(variant, decision);
+  await recordInteraction({ interaction, decision, currentNode, variant: effectiveVariant, traceId });
   return true;
+}
+
+// 学习信号应反映「模型实际选择的变体」而非服务端关键词兜底：
+// 若 decision.variantId 是合法的已注册变体 id，则用它（reason=model_selected）；
+// 否则（缺失/非字符串/幻觉的非法 id）回退到服务端兜底 selectedVariant，避免脏值污染画像。
+export function resolveEffectiveVariant(selectedVariant, decision) {
+  const id = decision?.variantId;
+  if (typeof id === 'string' && id) {
+    const known = getPresetVariant(id);
+    if (known) {
+      return {
+        id: known.id,
+        name: known.name,
+        sceneType: known.sceneType,
+        skillSource: known.skillSource,
+        priority: known.priority,
+        reason: 'model_selected',
+      };
+    }
+  }
+  return selectedVariant;
 }
 
 // 仅在真正成功应用后把最终 HTML 实际引用的素材写入记忆索引，失败/不更新路径不污染 assets 画像。

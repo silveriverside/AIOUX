@@ -125,12 +125,13 @@ export const EXPERIENCE_PRESETS = [
     ],
     visualGoals: [
       '有明确前中后景和空间层次',
-      '有景深、旋转、视差或伪 3D 体积感',
+      '真实几何体（地球/星球/天体/球体/真实产品模型）用真实 3D 体积渲染，而非平面图旋转冒充',
       '热点和注释要贴合空间对象',
     ],
     layoutRules: [
       '必须有立体感，不可退化成普通平面页面',
-      '优先使用 CSS 3D、canvas、SVG 伪 3D 或空间化 DOM',
+      '效果优先：真实几何体优先用 WebGL/three.js 真实 3D 渲染真实球面/曲面；仅卡片翻转、立方体、层叠视差等由平面元素空间编排的效果才用 CSS 3D/canvas/SVG 伪 3D',
+      '严禁用一张平面图做 rotateY 冒充球体或真实几何体',
       '减少大段说明文字占比',
     ],
     interactionRules: [
