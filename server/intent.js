@@ -2,7 +2,7 @@
 import { performance } from 'node:perf_hooks';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { buildPresetContextText } from './presets.js';
-import { selectPresetVariant, formatVariantBlock } from './presetRegistry.js';
+import { selectPresetVariant, formatVariantBlock, listPresetVariants } from './presetRegistry.js';
 import { buildMemorySection } from './memorySummary.js';
 
 // 控制回传给模型的当前页 HTML 长度，避免上下文超限
@@ -14,21 +14,36 @@ function truncateHtml(html) {
   return html.slice(0, MAX_HTML_CHARS) + `\n...(已截断，原长 ${html.length} 字符)`;
 }
 
-// 选出本次交互最匹配的预设变体，并构造注入文本（失败时返回空，不阻断主流程）。
+// 注入当前场景的全部候选变体，让模型按用户意图与「效果优先」自行选择，
+// 而不是用关键词在服务端预先锁死单个变体。selectPresetVariant 仅作为兜底默认与可观测参考。
 // 返回 { text, variant, reason, selectMs, meta }，其中 meta 是可观测用的精简变体信息。
 function buildSelectedVariantSection(interaction) {
   const selectStart = performance.now();
   try {
+    const sceneType = interaction?.currentCapabilities?.sceneType || null;
     const requestedVariantId = interaction?.requestedVariantId || null;
     const { primary, reason } = selectPresetVariant(interaction, { requestedVariantId });
     const selectMs = Math.round((performance.now() - selectStart) * 1000) / 1000;
     if (!primary) return { text: '', variant: null, reason, selectMs, meta: null };
+
+    // 候选清单：优先列出当前场景的全部启用变体（效果优先：priority 高者在前）。
+    // 无 sceneType 时回退到 primary 单条，避免把全量变体灌进 prompt。
+    const scoped = sceneType ? listPresetVariants({ sceneType }) : [];
+    const candidates = (scoped.length ? scoped : [primary])
+      .slice()
+      .sort((a, b) => b.priority - a.priority);
+
     const text = [
-      '【本次优先采用的预设变体】',
-      `选择依据: ${reason}`,
-      formatVariantBlock(primary),
-      '请优先遵循该变体的生成准则；若与用户明确诉求冲突，以用户诉求为准并在 reasoning 说明。',
+      '【本场景可选预设变体（请按用户意图与效果优先自行选择其一）】',
+      ...candidates.map(formatVariantBlock),
+      `服务端兜底建议: ${primary.id}（依据: ${reason}，仅供参考，可按效果优先覆盖）`,
+      '【变体选择要求】',
+      '- 效果优先：在满足用户意图的前提下，优先选择能达到最佳呈现效果的变体，不要因为实现简单而牺牲效果。',
+      '- 真实几何体（地球/星球/天体/球体/真实产品模型等）必须选择真实 3D（WebGL/three.js）变体并用真实 3D 几何渲染，禁止用平面图 rotateY 冒充球体。',
+      '- 伪 3D（纯 CSS 3D / GSAP）仅适用于卡片翻转、立方体、层叠视差、动效叙事等由平面元素空间编排的效果。',
+      '- 在决策 JSON 中用 variantId 字段回报你最终选择的变体 id；若与用户明确诉求冲突，以用户诉求为准并在 reasoning 说明。',
     ].join('\n');
+
     const meta = {
       id: primary.id,
       name: primary.name,
@@ -36,10 +51,11 @@ function buildSelectedVariantSection(interaction) {
       skillSource: primary.skillSource,
       priority: primary.priority,
       reason,
+      candidateIds: candidates.map((v) => v.id),
     };
     return { text, variant: primary, reason, selectMs, meta };
   } catch (err) {
-    console.warn('[intent] 预设变体选择失败，回退到通用范式摘要:', err.message);
+    console.warn('[intent] 预设变体候选注入失败，回退到通用范式摘要:', err.message);
     const selectMs = Math.round((performance.now() - selectStart) * 1000) / 1000;
     return { text: '', variant: null, reason: 'error', selectMs, meta: null };
   }
@@ -137,7 +153,7 @@ function describeInteraction(it) {
 // 期望的标准字段名列表
 const EXPECTED_KEYS = [
   'shouldUpdate', 'action', 'nodeId', 'parentId', 'title',
-  'intent', 'reasoning', 'mode', 'html', 'patches',
+  'intent', 'reasoning', 'mode', 'html', 'patches', 'variantId',
 ];
 const RESERVED_ACTION_VALUES = new Set(['stay', 'navigate', 'create']);
 
@@ -804,6 +820,9 @@ export function parseHybridOutput(raw, currentNode) {
   if ('html' in obj && typeof obj.html !== 'string') {
     return invalidDecision('html 必须是字符串。');
   }
+  if ('variantId' in obj && obj.variantId !== null && typeof obj.variantId !== 'string') {
+    return invalidDecision('variantId 必须是字符串或 null。');
+  }
   if (obj.mode === 'patch' && !Array.isArray(obj.patches)) {
     return invalidDecision('mode=patch 时 patches 必须是数组。');
   }
@@ -844,6 +863,7 @@ export function parseHybridOutput(raw, currentNode) {
     mode: obj.mode === 'patch' ? 'patch' : 'full',
     html: typeof obj.html === 'string' ? obj.html : '',
     patches: Array.isArray(obj.patches) ? obj.patches : [],
+    variantId: typeof obj.variantId === 'string' && obj.variantId ? obj.variantId : null,
   };
 
   const result = { ok: true, decision };
