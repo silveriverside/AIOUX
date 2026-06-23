@@ -104,7 +104,7 @@ function touchPage(nodeId, fields) {
 }
 
 // 唯一写编排入口：仅在 decision 表示应用成功时更新画像与页面。
-export function recordInteraction({ interaction = {}, decision = {}, currentNode = {}, variant = null, traceId = null } = {}) {
+export function recordInteraction({ interaction = {}, decision = {}, currentNode = {}, variant = null, variantDeviation = null, traceId = null } = {}) {
   ensureLoaded();
   if (decision.shouldUpdate === false) {
     return Promise.resolve(false); // 失败/不更新不污染画像
@@ -114,7 +114,7 @@ export function recordInteraction({ interaction = {}, decision = {}, currentNode
   const variantId = variant?.id || interaction?.requestedVariantId || null;
   const text = [interaction?.text, decision.intent, decision.title].filter(Boolean).join(' ');
 
-  memory.preferences = updateProfile(memory.preferences, { sceneType, variantId, text, action: decision.action });
+  memory.preferences = updateProfile(memory.preferences, { sceneType, variantId, text, action: decision.action, variantDeviation });
 
   const keywords = extractKeywords(text);
   const prev = memory.pages[nodeId];
@@ -124,7 +124,7 @@ export function recordInteraction({ interaction = {}, decision = {}, currentNode
     keywords: [...new Set([...(prev?.keywords || []), ...keywords])].slice(0, 12),
     useCount: (prev?.useCount || 0) + 1,
   });
-  pushEvent('interaction', { nodeId, sceneType, variantId, traceId });
+  pushEvent('interaction', { nodeId, sceneType, variantId, variantDeviation, traceId });
   return enqueuePersist().then(() => true);
 }
 

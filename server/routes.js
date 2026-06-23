@@ -7,6 +7,7 @@ import * as graph from './graph.js';
 import * as snap from './snapshots.js';
 import { resolveAssets } from './assets/index.js';
 import { findRelatedPages, listAssetsByNode, recordAssetUsage, recordInteraction, recordRevert, scoreAssetQuality } from './memory.js';
+import { VARIANT_DEVIATION } from './memoryProfile.js';
 import { getPresetVariant } from './presetRegistry.js';
 import { HAS_API_KEY } from './config.js';
 
@@ -155,6 +156,8 @@ export function buildInteractTimingPayload({
     sceneType: interaction?.currentCapabilities?.sceneType || 'generic',
     variantId: selectedVariant?.id || 'none',
     variantReason: selectedVariant?.reason || 'none',
+    modelVariantId: (typeof decision?.variantId === 'string' && decision.variantId) ? decision.variantId : 'none',
+    variantDeviation: classifyVariantSelection(selectedVariant, decision),
     action: decision?.action || 'n/a',
     mode: decision?.mode || 'n/a',
     nodeId: decision?.nodeId || 'n/a',
@@ -324,8 +327,9 @@ export async function buildMessagesWithAssets({
 export async function maybeRecordInteractionMemory({ interaction, decision, currentNode, result, variant, traceId }) {
   if (!decision || decision.shouldUpdate === false) return false;
   if (result?.applied === false) return false;
+  const variantDeviation = classifyVariantSelection(variant, decision);
   const effectiveVariant = resolveEffectiveVariant(variant, decision);
-  await recordInteraction({ interaction, decision, currentNode, variant: effectiveVariant, traceId });
+  await recordInteraction({ interaction, decision, currentNode, variant: effectiveVariant, variantDeviation, traceId });
   return true;
 }
 
@@ -348,6 +352,18 @@ export function resolveEffectiveVariant(selectedVariant, decision) {
     }
   }
   return selectedVariant;
+}
+
+// 观测「模型自选 vs 服务端兜底」的偏离，用于评估模型自选质量。返回四类：
+// - absent：模型未回报合法字符串 variantId（未使用自选机制）。
+// - invalid：模型回报了字符串 id 但不是已注册变体（脏值，会回退兜底）。
+// - deviate：模型选了一个合法变体且与兜底不同（自选生效）。
+// - match：模型选了和兜底相同的合法变体。
+export function classifyVariantSelection(selectedVariant, decision) {
+  const id = decision?.variantId;
+  if (typeof id !== 'string' || !id) return VARIANT_DEVIATION.ABSENT;
+  if (!getPresetVariant(id)) return VARIANT_DEVIATION.INVALID;
+  return id === selectedVariant?.id ? VARIANT_DEVIATION.MATCH : VARIANT_DEVIATION.DEVIATE;
 }
 
 // 仅在真正成功应用后把最终 HTML 实际引用的素材写入记忆索引，失败/不更新路径不污染 assets 画像。
