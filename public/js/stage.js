@@ -11,11 +11,12 @@ const DEFAULT_SANDBOX_TOKENS = ['allow-scripts', 'allow-popups'];
 const FORBIDDEN_SANDBOX_COMBINATIONS = [
   ['allow-scripts', 'allow-same-origin'],
 ];
-const ALLOWED_FRAME_MESSAGE_KINDS = new Set(['frame-capabilities', 'frame-pointer']);
+const ALLOWED_FRAME_MESSAGE_KINDS = new Set(['frame-capabilities', 'frame-pointer', 'frame-render-status']);
 const ALLOWED_SCENE_TYPES = new Set(['generic', 'immersive_media', 'card_browser', 'interactive_2d', 'interactive_3d']);
 const POINTER_PHASES = new Set(['down', 'up']);
 const BRIDGE_ARRAY_LIMIT = 32;
 const BRIDGE_TEXT_LIMIT = 80;
+const BRIDGE_ERROR_LIMIT = 500;
 
 function normalizeCapabilities(raw) {
   return {
@@ -84,6 +85,15 @@ export function validateFrameMessagePayload(data) {
     if (data.label !== undefined && data.label !== null && (typeof data.label !== 'string' || data.label.length > BRIDGE_TEXT_LIMIT)) return false;
     return true;
   }
+  if (data?.kind === 'frame-render-status') {
+    if (typeof data.ok !== 'boolean') return false;
+    if (typeof data.hasCanvas !== 'boolean') return false;
+    if (data.sceneType !== undefined && !ALLOWED_SCENE_TYPES.has(data.sceneType)) return false;
+    if (data.error !== undefined && data.error !== null) {
+      if (typeof data.error !== 'string' || data.error.length > BRIDGE_ERROR_LIMIT) return false;
+    }
+    return true;
+  }
   return false;
 }
 
@@ -147,6 +157,30 @@ function buildBridgeScript(nonce) {
       parent.postMessage({ __aioux:true, kind:'frame-capabilities', nonce:AIOUX_BRIDGE_NONCE, capabilities: inferCapabilities() }, '*');
     } catch(e) {}
   }
+  // 渲染状态观测：sandbox iframe 跨域，父页面读不到内部 canvas，故由内部主动回报。
+  // 捕获 module 解析/运行错误（如缺 importmap 时的 "Failed to resolve module specifier"）
+  // 与 canvas 是否真正创建，供父页面统计真实 3D 渲染成功率。
+  var AIOUX_FIRST_ERROR = null;
+  window.addEventListener('error', function(e){
+    if (AIOUX_FIRST_ERROR == null) AIOUX_FIRST_ERROR = String((e && e.message) || 'error').slice(0, 480);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    if (AIOUX_FIRST_ERROR == null) {
+      var reason = e && e.reason;
+      AIOUX_FIRST_ERROR = String((reason && reason.message) || reason || 'unhandledrejection').slice(0, 480);
+    }
+  });
+  function reportRenderStatus(){
+    try {
+      var hasCanvas = !!document.querySelector('canvas');
+      var caps = inferCapabilities();
+      parent.postMessage({ __aioux:true, kind:'frame-render-status', nonce:AIOUX_BRIDGE_NONCE,
+        ok: hasCanvas && AIOUX_FIRST_ERROR == null,
+        hasCanvas: hasCanvas,
+        sceneType: caps.sceneType,
+        error: AIOUX_FIRST_ERROR }, '*');
+    } catch(e) {}
+  }
   document.addEventListener('pointerdown', function(e){
     if (!e.isTrusted) return;
     var ex = findExplorable(e.target);
@@ -168,6 +202,10 @@ function buildBridgeScript(nonce) {
   }
   setTimeout(reportCapabilities, 80);
   setTimeout(reportCapabilities, 300);
+  // CDN 模块异步加载较慢，分多个时间点回报渲染状态，覆盖快/慢两种就绪节奏。
+  setTimeout(reportRenderStatus, 300);
+  setTimeout(reportRenderStatus, 1500);
+  setTimeout(reportRenderStatus, 4000);
 })();
 <\/script>`;
 }
@@ -185,10 +223,27 @@ export function getSafeSandboxValue(input = DEFAULT_SANDBOX_TOKENS.join(' ')) {
   return [...new Set(tokens)].join(' ');
 }
 
+// three.js 等库以 ES module 引入时，其 examples/jsm 子模块内部使用裸说明符
+// `import ... from 'three'`。浏览器需要 importmap 才能解析裸说明符，否则整段
+// module 脚本会因 "Failed to resolve module specifier 'three'" 中断 → canvas
+// 永不创建 → 白屏。这里由宿主固定注入 importmap，保证无论模型怎么写裸导入都能解析。
+const THREE_VERSION = '0.160.0';
+const IMPORT_MAP = Object.freeze({
+  imports: {
+    three: `https://cdn.jsdelivr.net/npm/three@${THREE_VERSION}/build/three.module.js`,
+    'three/addons/': `https://cdn.jsdelivr.net/npm/three@${THREE_VERSION}/examples/jsm/`,
+  },
+});
+
+export function buildImportMapScript() {
+  return `<script type="importmap">${JSON.stringify(IMPORT_MAP)}</script>`;
+}
+
 // 包裹模型生成的片段为完整文档，注入基础样式与点击转发脚本
 function wrapDocument(fragment, nonce = currentBridgeNonce) {
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${buildImportMapScript()}
 <style>
   html,body{margin:0;padding:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
   [data-explorable]{cursor:pointer;}
@@ -196,6 +251,11 @@ function wrapDocument(fragment, nonce = currentBridgeNonce) {
 </style>
 ${buildBridgeScript(nonce)}</head>
 <body>${fragment}</body></html>`;
+}
+
+// 仅供单测：以确定 nonce 包裹文档，避免依赖渲染态。
+export function wrapDocumentForTest(fragment, nonce) {
+  return wrapDocument(fragment, nonce);
 }
 
 function parseDocument(html) {

@@ -1,15 +1,21 @@
 # AIOUX 全局进展总览
 
-> 更新时间：2026-06-23
+> 更新时间：2026-06-24
 > 作用：快速理解项目当前完成度、已收敛风险、验证基线和下一阶段优先级。
 
 ## 1. 当前结论
 
-AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险有回归保护”的状态。文本交互、页面图谱、版本历史、回退、异步快照、patch sync、多模态入口、素材复用、记忆画像、sandbox 隔离基线、意图路由评估和前端 trace 面板均已打通。变体选择已从“服务端关键词预锁单变体”改为“注入全部候选 + 模型按效果优先自选 + 关键词兜底”，并把模型自选结果闭环写入记忆画像。
+AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险有回归保护”的状态。文本交互、页面图谱、版本历史、回退、异步快照、patch sync、多模态入口、素材复用、记忆画像、sandbox 隔离基线、意图路由评估、前端 trace 面板和 3D 渲染状态观测均已打通。变体选择已从“服务端关键词预锁单变体”改为“注入全部候选 + 模型按效果优先自选 + 关键词兜底”，并把模型自选结果闭环写入记忆画像。
+
+最新重点收敛：
+
+- three.js 真 3D 白屏问题已修复：宿主在 sandbox `srcdoc` 中注入 importmap，模型使用 `from 'three'` 与 `three/addons/...` 裸导入，OrbitControls 等 examples/jsm 模块不再因裸说明符解析失败而中断。
+- 正式 sandbox 渲染状态已可观测：iframe bridge 回传 `frame-render-status`，前端 trace 与后端 `[client-log]` 双落盘，验收不再只看 HTML 字符串。
+- 天体类视觉质量进一步收敛：three 变体要求光环、卫星、风暴必须是可见几何或表面纹理，热点文字不能替代主体视觉元素；`saturn_3d_detail_qa` 实测显示超宽多层光环、卫星球体/轨道和表面云带/风暴纹理。
 
 当前主线验证基线：
 
-- `node --test`：258/258 通过。
+- `node --test 'server/**/*.test.js' 'public/**/*.test.js'`：258/258 通过。
 - `npm run e2e`：通过，覆盖临时服务、sandbox bridge、本地 3D 交互、内联脚本边界、snapshot、sync 和坏 patch guard。
 - `npm run eval:intent-routing`：80/80 通过，四个核心 `intentHint` 各 20 条。
 - `npm run eval:asset-quality`：可输出素材质量排序报告。
@@ -61,6 +67,7 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 - 多个合法决策候选、无唯一合法候选。
 - 重复关键字段，包括 Unicode escape 形式的重复 key。
 - `nodeId`、`parentId`、`title`、`intent`、`reasoning`、`html` 类型污染。
+- 字段边界整体右移损坏，例如真实样本 `":true,": "create"` 与 `nodeId{` / `html{`，可恢复时会同时恢复 `shouldUpdate=true` 与 `action=create`，不可恢复短乱码仍显式 no_update 并记录 `[parse-debug]`。
 
 当前仍未做的更大策略升级：
 
@@ -74,6 +81,7 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 - 默认 sandbox 去除 `allow-same-origin`。
 - iframe 内容通过 `srcdoc` 渲染，父页面不访问 iframe 同源 DOM。
 - bridge 增加 `event.source`、nonce、协议白名单和 payload 字段校验。
+- bridge 增加 `frame-render-status`，由 iframe 主动回报 `ok`、`hasCanvas`、`sceneType` 与首个脚本错误；该通道只作观测，不修改 capabilities 或触发交互。
 - pointer bridge 拒绝非可信合成事件。
 - 浏览器 E2E 覆盖真实 sandbox bridge、父窗口伪造消息拒绝、错误 nonce 拒绝。
 - 内联脚本边界 E2E 确认：生成 HTML 内联脚本可在 iframe 内执行，但不能访问父页面 DOM 或绕过 bridge。
@@ -109,6 +117,7 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 - 前后端 timing 与 `traceId` 贯通。
 - 后端结构化 timing 日志包含素材复用统计。
 - 前端新增最近 trace 面板，展示事件名、`traceId`、耗时和错误状态。
+- 前端会把可信 `frame-render-status` 写入 trace 面板并 POST `/api/client-log`，后端结构化记录 `[client-log]`，便于统计真实 3D 渲染成功率。
 - trace 面板覆盖空状态、HTML 转义和环形截断。
 - 桌面和移动视口均可见。
 
@@ -121,9 +130,9 @@ AIOUX 已从“可运行 Demo”推进到“核心链路较完整、关键风险
 
 | 风险 | 优先级 | 当前状态 | 下一步 |
 |------|--------|----------|--------|
-| 模型 JSON 输出稳定性 | P0 | 解析层门禁已大幅收敛 | 评估 `json_schema strict` 或两阶段生成，需策略确认 |
+| 模型 JSON 输出稳定性 | P0 | 解析层门禁已大幅收敛，字段整体右移样本已可恢复 | 继续积累 `[parse-debug]`，评估 `json_schema strict` 或两阶段生成，需策略确认 |
 | sandbox 与内联脚本策略 | P0 | 隔离与 bridge 已有回归保护 | 是否禁用/收紧内联脚本需单独确认 |
-| 视觉质量不稳定 | P1 | 主要依赖 prompt | 建立视觉质量评估器与样本集 |
+| 视觉质量不稳定 | P1 | 3D 天体细节已通过 prompt/验收约束收敛，仍依赖模型执行质量 | 建立视觉质量评估器与截图回看样本集 |
 | 素材排序权重 | P1 | 已接入质量分、权重和风险惩罚 | 继续调参与结果评估 |
 | snapshot job 持久化 | P2 | 当前仍在进程内存 | 需要设计持久化策略 |
 | trace 面板深度 | P2 | 已有最小面板 | 扩展决策、素材、commit、修复记录 |

@@ -1,6 +1,6 @@
 # AIOUX 当前路线看板
 
-> 更新时间：2026-06-23
+> 更新时间：2026-06-24
 > 作用：作为当前决策看板，保留 `.trae/documents/AIOUX-project-requirements-architecture-status.md` 作为完整历史账本。
 > 全局进展快照：见 `.trae/documents/AIOUX-global-progress.md`。
 
@@ -9,7 +9,9 @@
 - 项目已具备可运行的实时生成式 UX Demo：文本交互、Page Graph、节点历史、回退、异步快照、patch sync、多模态入口和浏览器端到端脚本均已打通。
 - 阶段 A 的阻断性 bug 已基本完成；阶段 B 的素材/记忆闭环已推进到第 3.13 步。
 - 变体选择已重构为“效果优先 + 模型自选”：注入当前场景全部候选让模型自选，关键词降为兜底；真实几何体强制走真 3D（WebGL）；模型回报 `variantId` 既作可观测字段又闭环写入记忆画像；并新增 match/deviate/invalid/absent 偏离观测与 `npm run eval:variant-deviation` 偏离率报告。
-- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 80/80 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test` 为 258/258 通过。
+- three.js 真 3D 渲染链路已修复：宿主注入 importmap，模型使用裸导入，sandbox bridge 回传 `frame-render-status`，前端 trace + 后端 `[client-log]` 双落盘。
+- 最新真实验收：`saturn_3d_visual_qa` 证明土星球体与宽光环可稳定渲染；`saturn_3d_detail_qa` 进一步证明光环、卫星、轨道和表面纹理不再只是“文字 + 圈”。
+- 最新验证：`npm run e2e` 已默认启动隔离服务并使用临时 snapshots；意图路由评估器当前 80/80 通过；素材质量评估器已可离线输出排序报告；近期全量 `node --test 'server/**/*.test.js' 'public/**/*.test.js'` 为 258/258 通过。
 - 当前最大风险不在基础链路，而在模型输出稳定性、安全隔离、意图路由误判和生成质量稳定性。
 
 ## 2. 已完成里程碑
@@ -24,14 +26,16 @@
 - 素材质量信号：`memory.assets` 已记录 `lastUsedAt`；`scoreAssetQuality(...)` 已可基于使用次数、节点覆盖和最近使用时间输出离线质量分；`npm run eval:asset-quality` 可输出离线排序报告。
 - E2E 隔离：`npm run e2e` 默认托管临时服务，使用临时 `AIOUX_SNAPSHOTS_DIR` 和临时端口；显式 `AIOUX_BASE_URL` 时保留外部服务模式。
 - 意图路由评估：新增 `npm run eval:intent-routing`，可离线输出总准确率、误判明细和按 category 分类统计。
+- three.js 真 3D 渲染：宿主 `stage.js` 包裹 `srcdoc` 时注入 importmap，three 变体禁止完整 CDN URL import，使用 `from 'three'` 与 `three/addons/...`；`frame-render-status` 可观测真实 canvas 与脚本错误。
+- 3D 天体视觉约束：光环必须是可见 `RingGeometry` / 环带几何体，卫星必须是小球体/轨道，风暴/云带必须是表面纹理/漩涡/斑点，热点文字不能替代主体元素。
 
 ## 3. 当前风险清单
 
-- P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言；当前已对顶层非对象、数组包裹、嵌套 decision 伪装、截断修复、缺失/污染关键字段、重复关键字段（含 Unicode escape）、非法 action/mode 枚举、混合文本候选提取、多合法候选歧义、无唯一合法候选和尾部截断候选做显式处理，后续仍需评估 `json_schema strict` 或两阶段生成。
+- P0：模型 JSON 输出仍可能字段污染、缺字段、截断或混入自然语言；当前已对顶层非对象、数组包裹、嵌套 decision 伪装、截断修复、缺失/污染关键字段、重复关键字段（含 Unicode escape）、非法 action/mode 枚举、混合文本候选提取、多合法候选歧义、无唯一合法候选、尾部截断候选和字段边界整体右移做显式处理，后续仍需评估 `json_schema strict` 或两阶段生成。
 - P0：sandbox iframe 默认已移除 `allow-same-origin`，iframe bridge 消息已增加 `event.source`、nonce 与协议字段白名单校验，并补充真实浏览器 E2E 回归；内联脚本边界已有 E2E 基线（可执行但不能访问父页面 DOM 或绕过 bridge），后续是否禁用/收紧内联脚本仍需单独架构决策。
 - P1：意图路由仍以启发式为主，已有可回放样本集和准确率输出；样本已扩到 80 条，核心 intentHint 已各覆盖 20 条。
 - P1：素材复用排序已接入质量分、综合权重与 issue/revert 风险惩罚；后续可继续调优权重、扩大质量信号和补充使用结果评估。
-- P1：视觉质量仍依赖 prompt，模型可能把画面型请求生成成百科式卡片页；3D 真实几何体场景已通过“效果优先 + 强制真 3D + 禁止平面冒充”收敛，其余场景仍待建立视觉质量评估器。
+- P1：视觉质量仍依赖 prompt；3D 真实几何体和天体细节已通过“效果优先 + 强制真 3D + 禁止平面冒充 + 主体元素不可由热点替代”收敛，其余场景仍待建立视觉质量评估器。
 - P2：snapshot job 状态仅在进程内存中，服务重启后历史 jobId 不可恢复。
 - P2：前端已有最近 trace 面板，能查看交互事件、traceId、耗时和错误状态；后续可继续补齐决策、素材复用、修复记录和 commit 详情。
 
@@ -41,6 +45,7 @@
 
 - `feature/reusable-asset-quality-ranking-tuning`：在已接入质量分、综合权重和风险惩罚的基础上，继续调优权重与质量信号。
 - `feature/visual-quality-evaluator`：沉淀画面型、卡片型、2D/3D 场景的质量样本和自动/半自动评分。
+- `feature/3d-visual-quality-regression`：把土星/地球/木星等 3D 天体样本沉淀为截图回看与渲染状态统计，持续观察 create 成功率、hasCanvas 成功率和视觉通过率。
 - `feature/intent-routing-evaluator-expanded`：样本已达到核心 intentHint 各 20 条，后续转为真实 trace 回放或误判复盘入口。
 
 ### 4.2 核心稳定性升级
@@ -100,3 +105,7 @@
 - 2026-06-22：模型决策 JSON 解析新增混合输出候选选择回归，支持自然语言包裹的唯一严格合法决策对象，阻止多个合法决策候选、多个候选无唯一合法决策、混合非严格候选和尾部截断候选落地；`server/intent.test.js` 16/16 通过，全量 `node --test` 218/218 通过。
 - 2026-06-22：前端新增最近 trace 面板，记录 `logTiming` 事件的 `traceId`、事件名、耗时和错误状态，支持 HTML 转义、空状态和环形截断；桌面/移动浏览器检查通过，`npm run e2e` 通过，全量 `node --test` 223/223 通过。
 - 2026-06-22：模型决策 JSON 解析继续收敛门禁，新增数组包裹、嵌套 decision 伪装、重复关键字段（含 Unicode escape）、关键字段对象类型污染和控制字符包裹回归；`server/intent.test.js` 22/22 通过，全量 `node --test` 229/229 通过。
+- 2026-06-23：修复 three.js sandbox 白屏：`stage.js` 注入 importmap，three 变体改用裸导入并禁止自带 importmap/完整 CDN URL；bridge 新增 `frame-render-status`，前端 trace 与后端 `[client-log]` 双落盘；`saturn_3d_visual_qa` 实测 `ok=true hasCanvas=true error=null` 且视觉通过。
+- 2026-06-23：基于 `[parse-debug]` 真实 raw 样本修复模型 JSON 字段边界整体右移，支持恢复 `":true,": "create"` 与 `nodeId{`/`html{` 等损坏形态；全量测试 256/256 通过。
+- 2026-06-24：three 变体补强天体细节视觉约束，要求光环、卫星、风暴必须是可见几何或表面纹理，热点文字不能替代主体；`saturn_3d_detail_qa` 实测光环/卫星/轨道明显，表面风暴纹理可见但仍可继续增强；全量测试 257/257 与 `npm run e2e` 通过。
+- 2026-06-24：提交前审查发现 `fuzzyRepairKeys` 对未知 key 中 `true/false` 的识别过宽，已补回归测试并收紧为标点边界 token（如 `":true,"`）才恢复 shouldUpdate；全量测试 258/258 通过。

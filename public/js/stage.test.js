@@ -9,7 +9,34 @@ import {
   getCurrentHtml,
   getCurrentBridgeNonce,
   isTrustedFrameMessage,
+  buildImportMapScript,
+  wrapDocumentForTest,
 } from './stage.js';
+
+test('buildImportMapScript 输出 three 与 three/addons 的裸说明符映射', () => {
+  const script = buildImportMapScript();
+  assert.match(script, /<script type="importmap">/);
+  const jsonMatch = script.match(/<script type="importmap">([\s\S]*?)<\/script>/);
+  assert.ok(jsonMatch, 'importmap script 应包含 JSON 内容');
+  const map = JSON.parse(jsonMatch[1]);
+  assert.equal(map.imports.three, 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
+  assert.equal(map.imports['three/addons/'], 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/');
+});
+
+test('wrapDocument 在任何 module 脚本与 body 之前注入 importmap', () => {
+  const wrapped = wrapDocumentForTest('<main><canvas id="c"></canvas></main>', 'nonce-importmap');
+  const importMapIdx = wrapped.indexOf('type="importmap"');
+  const bodyIdx = wrapped.indexOf('<body>');
+  const bridgeIdx = wrapped.indexOf('parent.postMessage');
+  assert.ok(importMapIdx >= 0, 'wrapDocument 应注入 importmap');
+  assert.ok(importMapIdx < bodyIdx, 'importmap 必须在 body 之前');
+  assert.ok(importMapIdx < bridgeIdx, 'importmap 必须在 bridge 脚本之前');
+  // importmap 必须早于任意 module 类型脚本，否则浏览器忽略它
+  const moduleScriptIdx = wrapped.indexOf('type="module"');
+  if (moduleScriptIdx >= 0) {
+    assert.ok(importMapIdx < moduleScriptIdx, 'importmap 必须在 module 脚本之前');
+  }
+});
 
 test('默认 iframe sandbox 不包含 allow-same-origin', () => {
   const sandbox = getSafeSandboxValue();
@@ -148,6 +175,89 @@ test('iframe bridge 拒绝未知 kind 与畸形 capabilities payload', () => {
       source: contentWindow,
       data: { __aioux: true, kind: 'frame-capabilities', nonce, capabilities: { explorableTargets: Array.from({ length: 33 }, (_, index) => `target-${index}`) } },
     }, { kind: 'frame-capabilities' }), false);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('iframe bridge 接受合法 frame-render-status 并拒绝畸形 payload', () => {
+  const previousDocument = globalThis.document;
+  const contentWindow = {};
+  const frame = {
+    attributes: {},
+    srcdoc: '',
+    contentWindow,
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+  globalThis.document = { getElementById: () => frame };
+
+  try {
+    renderFull('<main>render-status</main>');
+    const nonce = getCurrentBridgeNonce();
+    const base = { __aioux: true, kind: 'frame-render-status', nonce };
+
+    // 合法：ok/hasCanvas 为布尔，sceneType 合法枚举，error 为 null
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: true, hasCanvas: true, sceneType: 'interactive_3d', error: null },
+    }, { kind: 'frame-render-status' }), true);
+    // 合法：渲染失败带 error 字符串
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: false, hasCanvas: false, sceneType: 'generic', error: 'Failed to resolve module specifier' },
+    }, { kind: 'frame-render-status' }), true);
+    // 非法：ok 不是布尔
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: 'yes', hasCanvas: true, sceneType: 'generic', error: null },
+    }, { kind: 'frame-render-status' }), false);
+    // 非法：hasCanvas 不是布尔
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: true, hasCanvas: 1, sceneType: 'generic', error: null },
+    }, { kind: 'frame-render-status' }), false);
+    // 非法：sceneType 不在枚举
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: true, hasCanvas: true, sceneType: 'admin_panel', error: null },
+    }, { kind: 'frame-render-status' }), false);
+    // 非法：error 超长
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: false, hasCanvas: false, sceneType: 'generic', error: 'x'.repeat(600) },
+    }, { kind: 'frame-render-status' }), false);
+    // 非法：error 类型错误
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, ok: false, hasCanvas: false, sceneType: 'generic', error: 123 },
+    }, { kind: 'frame-render-status' }), false);
+    // 非法：错误 nonce
+    assert.equal(isTrustedFrameMessage({
+      source: contentWindow,
+      data: { ...base, nonce: 'wrong', ok: true, hasCanvas: true, sceneType: 'generic', error: null },
+    }, { kind: 'frame-render-status' }), false);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('renderFull 注入的 bridge 脚本包含 frame-render-status 上报', () => {
+  const previousDocument = globalThis.document;
+  const frame = {
+    attributes: {},
+    srcdoc: '',
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+  globalThis.document = { getElementById: () => frame };
+
+  try {
+    renderFull('<main>render-status-script</main>');
+    assert.match(frame.srcdoc, /frame-render-status/);
+    assert.match(frame.srcdoc, /querySelector\('canvas'\)/);
   } finally {
     globalThis.document = previousDocument;
   }

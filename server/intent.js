@@ -404,6 +404,10 @@ function fuzzyRepairKeys(obj) {
   const used = new Set();
   let dirty = false;
 
+  const hasCollapsedBooleanToken = (key, token) => (
+    new RegExp(`(^|[^a-z0-9_])${token}([^a-z0-9_]|$)`, 'i').test(String(key || ''))
+  );
+
   for (const key of keys) {
     if (EXPECTED_KEYS.includes(key)) {
       fixed[key] = obj[key];
@@ -462,9 +466,18 @@ function fuzzyRepairKeys(obj) {
       continue;
     }
 
-    // 兜底：无法识别的 key，尝试从 key 名和值类型推断 shouldUpdate / action
+    // 兜底：无法识别的 key，尝试从 key 名和值类型推断 shouldUpdate / action。
+    // 真实样本中出现过 `":true,": "create"`：key 内藏 shouldUpdate=true，
+    // value 则是 action=create，二者都需要恢复。
     dirty = true;
     const val = obj[key];
+    if (!used.has('shouldUpdate') && hasCollapsedBooleanToken(key, 'true')) {
+      fixed.shouldUpdate = true;
+      used.add('shouldUpdate');
+    } else if (!used.has('shouldUpdate') && hasCollapsedBooleanToken(key, 'false')) {
+      fixed.shouldUpdate = false;
+      used.add('shouldUpdate');
+    }
     if (typeof val === 'boolean' && !used.has('shouldUpdate')) {
       fixed.shouldUpdate = val;
       used.add('shouldUpdate');
@@ -483,11 +496,6 @@ function fuzzyRepairKeys(obj) {
       fixed.nodeId = val;
       used.add('nodeId');
     } else {
-      // key 名本身可能包含 boolean 信息（如 `:true,`）
-      if ((key.includes('true') || key.includes('false')) && !used.has('shouldUpdate')) {
-        fixed.shouldUpdate = key.includes('true');
-        used.add('shouldUpdate');
-      }
       // 保留未识别的字段
       fixed[key] = val;
     }

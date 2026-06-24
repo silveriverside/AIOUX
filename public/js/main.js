@@ -18,6 +18,8 @@ const els = {
 
 let currentNodeId = 'main';
 let busy = false;
+// 最近一次整页渲染对应的 traceId，用于把 sandbox 回报的 frame-render-status 关联到该次交互。
+let currentRenderTraceId = null;
 const tracePanelState = createTracePanelState({ limit: 12 });
 
 function makeTraceId(prefix = 'client') {
@@ -32,6 +34,37 @@ function logTiming(event, detail) {
   console.info('[timing]', JSON.stringify({ event, ...detail }));
   recordTraceEvent(tracePanelState, event, detail);
   renderTracePanel(els.tracePanel, tracePanelState.entries);
+}
+
+// sandbox iframe 跨域，父页面读不到内部 canvas，故由 bridge 回报真实渲染状态。
+// 这里仅作观测：进 console + trace 面板，并 POST 后端集中落盘，便于离线统计 3D 渲染成功率。
+// 严禁据此修改 capabilities 或触发交互，避免被恶意 iframe 借观测通道影响界面。
+function postClientLog(event, detail) {
+  try {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, traceId: detail?.traceId, detail }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e) => {
+    if (!stage.isTrustedFrameMessage(e, { kind: 'frame-render-status' })) return;
+    const d = e.data;
+    const detail = {
+      traceId: currentRenderTraceId || makeTraceId('render'),
+      ok: d.ok,
+      hasCanvas: d.hasCanvas,
+      sceneType: d.sceneType || 'generic',
+      nodeId: currentNodeId,
+      error: d.error || null,
+    };
+    logTiming('frame_render_status', detail);
+    postClientLog('frame_render_status', detail);
+  });
 }
 
 function setStatus(text, action) {
@@ -117,6 +150,7 @@ function applyResult(res, clientTiming = null, fallbackTraceId = '') {
 
   if (d.action === 'navigate') {
     const renderStart = performance.now();
+    currentRenderTraceId = traceId;
     stage.renderFull(res.html || '');
     logTiming('render_full', { traceId, action: d.action, mode: d.mode, timing: { renderMs: elapsedSince(renderStart) } });
   } else if (d.mode === 'patch' && d.action === 'stay') {
@@ -150,6 +184,7 @@ function applyResult(res, clientTiming = null, fallbackTraceId = '') {
       });
   } else {
     const renderStart = performance.now();
+    currentRenderTraceId = traceId;
     stage.renderFull(res.html || '');
     logTiming('render_full', { traceId, action: d.action, mode: d.mode, timing: { renderMs: elapsedSince(renderStart) } });
   }
@@ -224,6 +259,7 @@ async function navigateTo(nodeId) {
   try {
     const res = await api.navigate(nodeId);
     hideWelcome();
+    currentRenderTraceId = makeTraceId('navigate');
     stage.renderFull(res.html || '');
     currentNodeId = nodeId;
     renderBreadcrumb(res.breadcrumb);
@@ -242,6 +278,7 @@ async function revertTo(nodeId, fullHash) {
   try {
     const res = await api.revert(nodeId, fullHash);
     hideWelcome();
+    currentRenderTraceId = makeTraceId('revert');
     stage.renderFull(res.html || '');
     currentNodeId = nodeId;
     renderBreadcrumb(res.breadcrumb);
@@ -269,7 +306,7 @@ async function boot() {
     renderTree(g.graph);
     renderBreadcrumb(g.breadcrumb);
     currentNodeId = g.graph.current;
-    if (g.currentHtml) { hideWelcome(); stage.renderFull(g.currentHtml); }
+    if (g.currentHtml) { hideWelcome(); currentRenderTraceId = makeTraceId('boot'); stage.renderFull(g.currentHtml); }
     renderVersions(currentNodeId);
   } catch (e) { console.warn('加载图谱失败:', e.message); }
 

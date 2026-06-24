@@ -152,6 +152,53 @@ test('非法 action 和 mode 枚举时显式阻止落地', () => {
   assert.ok(result.error && result.error.includes('action'), '应明确说明 action 非法');
 });
 
+test('修复字段边界整体右移损坏（shouldUpdate 塌缩为 ":true," + 字段名尾随 {）', () => {
+  // 真实捕获样本（来自 [parse-debug] 日志）：模型把 "shouldUpdate": true, 整段塌缩成
+  // key ":true,"，其 value "create" 实为 action 的值；后续字段名都尾随一个 "{"。
+  const corrupted = JSON.stringify({
+    ':true,': 'create',
+    'nodeId{': 'jupiter_3d_showcase',
+    'parentId{': 'main',
+    'title{': '可旋转3D木星',
+    'intent{': '创建可拖拽旋转的真实感3D木星展示页面',
+    'reasoning{': '用户要求 three.js 真 3D 木星，应创建子节点',
+    'mode{': 'full',
+    'html{': '<div id="jupiter-container"><canvas></canvas></div>',
+    patches: [],
+  });
+
+  const result = parseHybridOutput(corrupted, currentNode);
+
+  assert.equal(result.decision.shouldUpdate, true, 'shouldUpdate 应从塌缩 key 的 true 恢复');
+  assert.equal(result.decision.action, 'create', 'action 应从首对的 value 恢复');
+  assert.equal(result.decision.nodeId, 'jupiter_3d_showcase');
+  assert.equal(result.decision.title, '可旋转3D木星');
+  assert.equal(result.decision.mode, 'full');
+  assert.equal(result.decision.html, '<div id="jupiter-container"><canvas></canvas></div>');
+  assert.equal(result.ok, false, '字段名损坏自动修复仍应暴露警告');
+});
+
+test('未知字段名包含 true 但不是布尔塌缩 token 时不应恢复 shouldUpdate 并落地', () => {
+  const corrupted = JSON.stringify({
+    isTrueSignal: 'create',
+    nodeId: 'unsafe_true_signal',
+    parentId: 'main',
+    title: '不安全 true 信号',
+    intent: '测试未知字段名包含 true',
+    reasoning: '字段名包含 true 不等于 shouldUpdate=true',
+    mode: 'full',
+    html: '<main>unsafe</main>',
+    patches: [],
+  });
+
+  const result = parseHybridOutput(corrupted, currentNode);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.shouldUpdate, false, '未知字段名里的 true 不能触发落地');
+  assert.equal(result.decision.nodeId, 'main');
+  assert.ok(result.error && result.error.includes('shouldUpdate'), '应按缺少 shouldUpdate 阻止落地');
+});
+
 test('action 尾部结构残片可清理后正常落地', () => {
   const result = parseHybridOutput(
     JSON.stringify({

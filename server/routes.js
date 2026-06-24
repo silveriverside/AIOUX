@@ -377,6 +377,48 @@ export async function maybeRecordAssetMemory({ decision, result } = {}) {
   return true;
 }
 
+// 前端上报日志的白名单与字段校验。集中校验便于单测，端点只负责落盘与响应。
+const CLIENT_LOG_EVENTS = new Set(['frame_render_status']);
+const CLIENT_LOG_ERROR_LIMIT = 500;
+const CLIENT_LOG_SCENE_TYPES = new Set(['generic', 'immersive_media', 'card_browser', 'interactive_2d', 'interactive_3d']);
+
+export function buildClientLogPayload({ event, traceId = null, detail = null } = {}) {
+  if (typeof event !== 'string' || !CLIENT_LOG_EVENTS.has(event)) {
+    return { ok: false, error: `不支持的 client-log event: ${event}` };
+  }
+  const safeTraceId = (typeof traceId === 'string' && traceId.trim())
+    ? traceId.trim().slice(0, 120)
+    : `clientlog_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  if (event === 'frame_render_status') {
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) {
+      return { ok: false, error: 'frame_render_status detail 缺失或非对象' };
+    }
+    if (typeof detail.ok !== 'boolean') return { ok: false, error: 'frame_render_status.ok 必须为布尔' };
+    if (typeof detail.hasCanvas !== 'boolean') return { ok: false, error: 'frame_render_status.hasCanvas 必须为布尔' };
+    if (detail.sceneType !== undefined && detail.sceneType !== null && !CLIENT_LOG_SCENE_TYPES.has(detail.sceneType)) {
+      return { ok: false, error: `frame_render_status.sceneType 非法: ${detail.sceneType}` };
+    }
+    let error = null;
+    if (detail.error !== undefined && detail.error !== null) {
+      error = String(detail.error).slice(0, CLIENT_LOG_ERROR_LIMIT);
+    }
+    return {
+      ok: true,
+      payload: {
+        event,
+        traceId: safeTraceId,
+        ok: detail.ok,
+        hasCanvas: detail.hasCanvas,
+        sceneType: detail.sceneType || 'generic',
+        nodeId: (typeof detail.nodeId === 'string' && detail.nodeId) ? detail.nodeId.slice(0, 120) : null,
+        error,
+      },
+    };
+  }
+  return { ok: false, error: `未实现的 client-log event: ${event}` };
+}
+
 // 记录回退负反馈；由调用方决定 nodeId/variantId。
 export async function recordRevertMemory({ nodeId, variantId = null, traceId = null } = {}) {
   if (!nodeId) return false;
@@ -478,7 +520,19 @@ router.post('/api/interact', async (req, res) => {
   const parseStart = performance.now();
   const { ok, error, decision } = parseHybridOutput(raw, currentNode);
   timing.parseMs = Math.round(performance.now() - parseStart);
-  if (!ok) console.warn('[interact] 解析降级:', error);
+  if (!ok) {
+    console.warn('[interact] 解析降级:', error);
+    // 落盘模型原始输出，便于离线定向分析字段损坏/截断等解析降级根因（待修复 bug）。
+    // 仅在降级路径打印，正常路径不记录，避免噪音与体积膨胀。
+    const rawText = typeof raw === 'string' ? raw : String(raw ?? '');
+    console.warn('[parse-debug]', JSON.stringify({
+      traceId,
+      reason: error,
+      rawLength: rawText.length,
+      rawHead: rawText.slice(0, 2000),
+      rawTail: rawText.length > 2000 ? rawText.slice(-800) : '',
+    }));
+  }
 
   // 无需更新：直接返回决策，不改图谱不提交
   if (!decision.shouldUpdate) {
@@ -664,6 +718,16 @@ router.post('/api/sync', async (req, res) => {
     console.log('[timing]', JSON.stringify({ event: 'sync_error', traceId, nodeId, timing }));
     res.status(500).json({ error: err.message, traceId, timing });
   }
+});
+
+// 前端渲染状态等观测日志集中落盘，便于离线统计 3D 真实渲染成功率。
+router.post('/api/client-log', (req, res) => {
+  const built = buildClientLogPayload(req.body || {});
+  if (!built.ok) {
+    return res.status(400).json({ ok: false, error: built.error });
+  }
+  console.log('[client-log]', JSON.stringify(built.payload));
+  res.json({ ok: true, traceId: built.payload.traceId });
 });
 
 // 手动导航到指定节点
